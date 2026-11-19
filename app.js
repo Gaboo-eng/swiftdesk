@@ -1,9 +1,8 @@
-import { firebaseConfig, firebaseConfigured } from "./firebase-config.js";
+import { firebaseReady } from "./firebase-client.js";
+import { firebaseConfig } from "./firebase-config.js";
 
-const loginScreen = document.querySelector("#login-screen");
 const appShell = document.querySelector("#app-shell");
-const loginMessage = document.querySelector("#login-message");
-const configNotice = document.querySelector("#config-notice");
+const dashboardStatus = document.querySelector("#dashboard-status");
 const mainView = document.querySelector("#main-view");
 const toast = document.querySelector("#toast");
 const roleNames = { admin: "Administrador", advisor: "Asesor" };
@@ -194,11 +193,6 @@ function updateGreeting() {
   document.querySelector("#today-date").textContent = new Intl.DateTimeFormat("es", {
     weekday: "long", day: "numeric", month: "long"
   }).format(new Date());
-}
-
-function setAuthenticatedView(isAuthenticated) {
-  loginScreen.classList.toggle("hidden", isAuthenticated);
-  appShell.classList.toggle("hidden", !isAuthenticated);
 }
 
 function cleanupSubscriptions() {
@@ -437,23 +431,6 @@ function subscribeToWorkspace() {
   }, (error) => showToast(`Error al cargar las guardias: ${error.message}`));
 }
 
-async function handleLogin(event) {
-  event.preventDefault();
-  const email = document.querySelector("#login-email").value.trim();
-  const password = document.querySelector("#login-password").value;
-  if (!firebase || !email || !password) return;
-  const submitButton = event.currentTarget.querySelector('button[type="submit"]');
-  submitButton.disabled = true;
-  showMessage(loginMessage, "Verificando tus datos...");
-  try {
-    await firebase.signInWithEmailAndPassword(firebase.auth, email, password);
-  } catch (error) {
-    showMessage(loginMessage, humanizeAuthError(error), true);
-  } finally {
-    submitButton.disabled = false;
-  }
-}
-
 function humanizeAuthError(error) {
   const messages = {
     "auth/invalid-credential": "El correo o la contraseña no son correctos.",
@@ -467,42 +444,31 @@ function humanizeAuthError(error) {
   return messages[error.code] || `No se pudo completar la operación: ${error.message}`;
 }
 
-async function handlePasswordReset() {
-  const email = document.querySelector("#login-email").value.trim();
-  if (!firebase) return showMessage(loginMessage, "Primero configura Firebase siguiendo la guía del proyecto.", true);
-  if (!email) return showMessage(loginMessage, "Escribe tu correo para enviarte el enlace de recuperación.", true);
-  try {
-    await firebase.sendPasswordResetEmail(firebase.auth, email);
-    showMessage(loginMessage, "Si la cuenta existe, recibirás un correo con los pasos para restablecer la contraseña.");
-  } catch (error) {
-    showMessage(loginMessage, humanizeAuthError(error), true);
-  }
-}
-
 async function handleAuthState(user) {
   cleanupSubscriptions();
   currentUser = user;
   currentProfile = null;
   if (!user) {
-    setAuthenticatedView(false);
+    window.location.replace("./index.html?reason=session");
     return;
   }
   try {
     const profileSnapshot = await firebase.getDoc(firebase.doc(firebase.db, "users", user.uid));
     if (!profileSnapshot.exists()) {
       await firebase.signOut(firebase.auth);
-      showMessage(loginMessage, "Tu cuenta aún no tiene un perfil asignado. Solicita acceso a un administrador.", true);
+      window.location.replace("./index.html?reason=profile");
       return;
     }
     const profile = profileSnapshot.data();
     if (!["admin", "advisor"].includes(profile.role)) {
       await firebase.signOut(firebase.auth);
-      showMessage(loginMessage, "El perfil no tiene un rol válido. Contacta al administrador.", true);
+      window.location.replace("./index.html?reason=profile");
       return;
     }
     currentProfile = profile;
     loadUserNotes();
-    setAuthenticatedView(true);
+    dashboardStatus.classList.add("hidden");
+    appShell.classList.remove("hidden");
     const displayName = profile.name || user.displayName || user.email || "Usuario";
     document.querySelector("#user-name").textContent = displayName;
     document.querySelector("#user-role").textContent = roleNames[profile.role];
@@ -512,8 +478,8 @@ async function handleAuthState(user) {
     selectView(activeView);
     subscribeToWorkspace();
   } catch (error) {
-    await firebase.signOut(firebase.auth);
-    showMessage(loginMessage, `No se pudo cargar tu perfil: ${error.message}`, true);
+    dashboardStatus.textContent = `No se pudo validar tu perfil. Revisa tu conexión y vuelve a cargar: ${error.message}`;
+    dashboardStatus.classList.add("error");
   }
 }
 
@@ -612,14 +578,11 @@ function closeSidebar() {
 }
 
 function setupUI() {
-  document.querySelector("#login-form").addEventListener("submit", handleLogin);
-  document.querySelector("#forgot-password").addEventListener("click", handlePasswordReset);
   document.querySelector("#logout-button").addEventListener("click", async () => {
     try {
       cleanupSubscriptions();
       await firebase.signOut(firebase.auth);
-      document.querySelector("#login-form").reset();
-      showMessage(loginMessage, "Sesión cerrada correctamente.");
+      window.location.replace("./index.html");
     } catch (error) {
       showToast(`No se pudo cerrar la sesión: ${error.message}`);
     }
@@ -634,47 +597,10 @@ function setupUI() {
 }
 
 setupUI();
-const loginButton = document.querySelector("#login-form button[type='submit']");
-loginButton.disabled = true;
-showMessage(loginMessage, "Conectando con Firebase...");
-
-if (!firebaseConfigured) {
-  configNotice.textContent = "La aplicación todavía no está conectada a Firebase. Copia la configuración web de tu proyecto en firebase-config.js para habilitar el acceso.";
-  configNotice.classList.remove("hidden");
-  document.querySelector("#login-form button[type='submit']").disabled = true;
-} else {
-  try {
-    const [appSdk, authSdk, firestoreSdk] = await Promise.all([
-      import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js"),
-      import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js")
-    ]);
-    const app = appSdk.initializeApp(firebaseConfig);
-    const auth = authSdk.getAuth(app);
-    const db = firestoreSdk.getFirestore(app);
-    firebase = {
-      auth, db, signInWithEmailAndPassword: authSdk.signInWithEmailAndPassword,
-      sendPasswordResetEmail: authSdk.sendPasswordResetEmail, signOut: authSdk.signOut,
-      onAuthStateChanged: authSdk.onAuthStateChanged,
-      collection: firestoreSdk.collection, doc: firestoreSdk.doc, getDoc: firestoreSdk.getDoc,
-      getDocs: firestoreSdk.getDocs, addDoc: firestoreSdk.addDoc,
-      updateDoc: firestoreSdk.updateDoc, deleteDoc: firestoreSdk.deleteDoc,
-      onSnapshot: firestoreSdk.onSnapshot, serverTimestamp: firestoreSdk.serverTimestamp,
-      setDoc: firestoreSdk.setDoc,
-      initializeApp: appSdk.initializeApp, getAuth: authSdk.getAuth,
-      createUserWithEmailAndPassword: authSdk.createUserWithEmailAndPassword,
-      deleteUser: authSdk.deleteUser, deleteApp: appSdk.deleteApp,
-      setPersistence: authSdk.setPersistence,
-      browserLocalPersistence: authSdk.browserLocalPersistence,
-      inMemoryPersistence: authSdk.inMemoryPersistence
-    };
-    await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
-    loginButton.disabled = false;
-    showMessage(loginMessage, "");
-    authSdk.onAuthStateChanged(auth, handleAuthState);
-  } catch (error) {
-    configNotice.textContent = `No se pudo iniciar Firebase: ${error.message}`;
-    configNotice.classList.remove("hidden");
-    showMessage(loginMessage, "Verifica la configuración de Firebase y vuelve a cargar la página.", true);
-  }
+try {
+  firebase = await firebaseReady;
+  firebase.onAuthStateChanged(firebase.auth, handleAuthState);
+} catch (error) {
+  dashboardStatus.textContent = `No se pudo iniciar Firebase: ${error.message}`;
+  dashboardStatus.classList.add("error");
 }

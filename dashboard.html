@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="theme-color" content="#174ea6">
+  <title>SwiftDesk | Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main id="dashboard-status" class="dashboard-status" role="status" aria-live="polite">Comprobando tu sesión...</main>
+  <div id="app-shell" class="app-shell hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-top">
+        <a class="brand" href="./dashboard.html" aria-label="SwiftDesk inicio">
+          <span class="brand-mark">S</span><span>SwiftDesk</span>
+        </a>
+        <button id="close-sidebar" class="icon-button mobile-only" aria-label="Cerrar menú" type="button">×</button>
+      </div>
+      <div class="user-summary">
+        <span id="user-avatar" class="avatar">S</span>
+        <div class="user-copy">
+          <strong id="user-name">Usuario</strong>
+          <span id="user-role">Asesor</span>
+        </div>
+      </div>
+      <p class="nav-caption">ESPACIO DE TRABAJO</p>
+      <nav class="main-nav" aria-label="Navegación principal">
+        <button class="nav-link active" data-view="portal" type="button"><span>▤</span> Portal informativo</button>
+        <button class="nav-link" data-view="calendar" type="button"><span>▦</span> Calendario de guardias</button>
+        <button class="nav-link" data-view="speech" type="button"><span>☷</span> Speech de atención</button>
+        <button class="nav-link" data-view="pdf" type="button"><span>▧</span> Convertidor de PDF</button>
+        <button class="nav-link" data-view="auxiliary" type="button"><span>＋</span> Módulo auxiliar</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-help"><span class="help-icon">i</span><span>Información y herramientas<br>para tu jornada.</span></div>
+        <button id="logout-button" class="logout-button" type="button"><span>↪</span> Cerrar sesión</button>
+      </div>
+    </aside>
+    <div id="sidebar-scrim" class="sidebar-scrim"></div>
+    <main class="workspace">
+      <header class="topbar">
+        <button id="open-sidebar" class="icon-button mobile-only" type="button" aria-label="Abrir menú">☰</button>
+        <div class="breadcrumbs">SwiftDesk <span>/</span> <strong id="breadcrumb-current">Portal informativo</strong></div>
+        <div class="topbar-right"><span class="status-dot"></span><span>Conectado</span></div>
+      </header>
+      <div class="content-area">
+        <section class="welcome-row">
+          <div>
+            <p class="eyebrow">TU ESPACIO DE TRABAJO</p>
+            <h1 id="greeting">Buenos días</h1>
+            <p id="welcome-copy" class="muted">Aquí tienes las novedades y recursos para tu jornada.</p>
+          </div>
+          <div class="date-card"><span class="date-icon">▦</span><span id="today-date"></span></div>
+        </section>
+        <label class="global-search" for="global-search">
+          <span aria-hidden="true">⌕</span>
+          <input id="global-search" type="search" placeholder="Buscar procesos, comunicados y recursos..." autocomplete="off">
+          <kbd>Buscar</kbd>
+        </label>
+        <div id="search-results" class="search-results hidden"></div>
+        <section id="main-view" aria-live="polite"></section>
+      </div>
+      <footer class="live-banner">
+        <div class="live-icon">i</div>
+        <div class="live-copy"><strong>Comunicado de operaciones</strong><span id="announcement-text">Cargando comunicados...</span></div>
+        <div class="duty-pill"><span class="duty-dot"></span><span>De guardia:</span><strong id="current-duty">Sin turno asignado</strong></div>
+      </footer>
+    </main>
+    <div class="quick-actions" aria-label="Herramientas rápidas">
+      <button class="quick-button" data-panel="calculator-panel" type="button" aria-label="Calculadora de prorrateo" title="Calculadora de prorrateo"><span>％</span></button>
+      <button class="quick-button" data-panel="calendar-panel" type="button" aria-label="Google Calendar" title="Google Calendar"><span>▦</span></button>
+      <button class="quick-button" data-panel="notes-panel" type="button" aria-label="Notas rápidas" title="Notas rápidas"><span>▤</span></button>
+      <button class="quick-button" data-panel="suggestion-panel" type="button" aria-label="Buzón de sugerencias" title="Buzón de sugerencias"><span>✉</span></button>
+    </div>
+  </div>
+  <div id="calculator-panel" class="utility-panel hidden" role="dialog" aria-modal="false" aria-labelledby="calculator-title">
+    <div class="panel-heading"><div><p class="eyebrow">HERRAMIENTA RÁPIDA</p><h2 id="calculator-title">Prorrateo · 30 días</h2></div><button class="icon-button panel-close" type="button" aria-label="Cerrar">×</button></div>
+    <p class="muted small">Calcula el importe proporcional de un ciclo mensual fijo de 30 días.</p>
+    <label for="prorate-total">Importe mensual</label><div class="input-with-prefix"><span>$</span><input id="prorate-total" type="number" min="0" step="0.01" placeholder="0.00"></div>
+    <label for="prorate-days">Días a prorratear</label><input id="prorate-days" type="number" min="0" max="30" step="1" placeholder="0">
+    <div class="calc-result"><span>Importe proporcional</span><strong id="prorate-result">$0.00</strong></div>
+  </div>
+  <div id="calendar-panel" class="utility-panel calendar-utility hidden" role="dialog" aria-modal="false" aria-labelledby="calendar-title">
+    <div class="panel-heading"><div><p class="eyebrow">HERRAMIENTA RÁPIDA</p><h2 id="calendar-title">Google Calendar</h2></div><button class="icon-button panel-close" type="button" aria-label="Cerrar">×</button></div>
+    <p class="muted small">Pega la URL de inserción pública o autorizada de tu calendario de Google.</p>
+    <label for="calendar-url">URL de inserción</label><div class="calendar-url-row"><input id="calendar-url" type="url" placeholder="https://calendar.google.com/calendar/embed?..."><button id="save-calendar-url" class="button button-secondary" type="button">Abrir</button></div>
+    <iframe id="calendar-frame" class="calendar-frame hidden" title="Calendario de Google" loading="lazy" referrerpolicy="no-referrer"></iframe>
+    <p id="calendar-message" class="form-message" role="status"></p>
+  </div>
+  <div id="notes-panel" class="utility-panel notes-utility hidden" role="dialog" aria-modal="false" aria-labelledby="notes-title">
+    <div class="panel-heading"><div><p class="eyebrow">HERRAMIENTA RÁPIDA</p><h2 id="notes-title">Notas rápidas</h2></div><button class="icon-button panel-close" type="button" aria-label="Cerrar">×</button></div>
+    <textarea id="quick-notes" rows="10" placeholder="Escribe una nota para tu jornada..."></textarea>
+    <p class="muted small">Se guarda en este navegador y dispositivo.</p>
+  </div>
+  <div id="suggestion-panel" class="utility-panel hidden" role="dialog" aria-modal="false" aria-labelledby="suggestion-title">
+    <div class="panel-heading"><div><p class="eyebrow">AYÚDANOS A MEJORAR</p><h2 id="suggestion-title">Buzón de sugerencias</h2></div><button class="icon-button panel-close" type="button" aria-label="Cerrar">×</button></div>
+    <form id="suggestion-form" class="form-stack">
+      <label for="suggestion-text">Tu propuesta</label><textarea id="suggestion-text" rows="5" maxlength="2000" placeholder="¿Qué podemos mejorar?" required></textarea>
+      <button class="button button-primary" type="submit">Enviar sugerencia</button>
+    </form>
+    <p id="suggestion-message" class="form-message" role="status"></p>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
