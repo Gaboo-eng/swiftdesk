@@ -86,57 +86,64 @@ async function loadTeamMembers() {
 
 async function createTeamMember(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   const name = document.querySelector("#team-name").value.trim();
   const email = document.querySelector("#team-email").value.trim();
   const password = document.querySelector("#team-password").value;
   const role = document.querySelector("#team-role").value;
   const department = document.querySelector("#team-department").value;
-  if (name.length === 0 || !email || password.length < 6 || !["admin", "advisor"].includes(role)) {
-    showToast("Completa los datos; la contraseña debe tener al menos 6 caracteres.");
+  const message = document.querySelector("#team-message");
+
+  if (!name || !email || password.length < 6 || !["admin", "advisor"].includes(role)) {
+    showMessage(message, "Completa los datos; la contraseña debe tener al menos 6 caracteres.", true);
     return;
   }
-  const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+
+  const submitButton = form.querySelector('button[type="submit"]');
   submitButton.disabled = true;
-  showMessage(document.querySelector("#team-message"), "Creando cuenta y perfil...");
-  let provisionedUser = null;
+  showMessage(message, "Creando cuenta y perfil...");
   let secondaryApp = null;
+  let createdUser = null;
+
   try {
     secondaryApp = firebase.initializeApp(firebaseConfig, `swiftdesk-provision-${Date.now()}`);
     const secondaryAuth = firebase.getAuth(secondaryApp);
     await firebase.setPersistence(secondaryAuth, firebase.inMemoryPersistence);
     const credential = await firebase.createUserWithEmailAndPassword(secondaryAuth, email, password);
-    provisionedUser = credential.user;
-    await firebase.setDoc(firebase.doc(firebase.db, "users", provisionedUser.uid), {
-      name, email, role, department, createdAt: firebase.serverTimestamp()
+    createdUser = credential.user;
+
+    await firebase.setDoc(firebase.doc(firebase.db, "users", createdUser.uid), {
+      name,
+      email,
+      role,
+      department,
+      createdAt: firebase.serverTimestamp()
     });
-    event.currentTarget.reset();
-    showMessage(document.querySelector("#team-message"), `Cuenta creada para ${email}. El asesor puede iniciar sesión con la contraseña inicial asignada.`);
+
+    form.reset();
+    showMessage(message, `Cuenta creada para ${email}. Comunica la contraseña inicial por un canal seguro.`);
     await loadTeamMembers();
   } catch (error) {
-    if (provisionedUser) {
+    if (createdUser) {
       try {
-        await firebase.deleteUser(provisionedUser);
-        showMessage(
-          document.querySelector("#team-message"),
-          `No se guardó el perfil en Firestore y se eliminó la cuenta Auth recién creada. Error: ${error.message}`,
-          true
-        );
+        await firebase.deleteUser(createdUser);
+        showMessage(message, `No se guardó el perfil y se eliminó la cuenta recién creada. Error de Firestore: ${error.message}`, true);
       } catch (cleanupError) {
         showMessage(
-          document.querySelector("#team-message"),
+          message,
           `Falló el perfil (${error.message}) y no se pudo eliminar la cuenta Auth (${cleanupError.message}). Revisa Authentication → Users.`,
           true
         );
       }
     } else {
-      showMessage(document.querySelector("#team-message"), `No se pudo crear la cuenta: ${humanizeAuthError(error)}`, true);
+      showMessage(message, `No se pudo crear la cuenta: ${humanizeAuthError(error)}`, true);
     }
   } finally {
     if (secondaryApp) {
       try {
         await firebase.deleteApp(secondaryApp);
       } catch (error) {
-        showToast(`La cuenta se creó, pero no se pudo cerrar el contexto temporal: ${error.message}`);
+        showToast(`No se pudo cerrar el contexto temporal de Auth: ${error.message}`);
       }
     }
     submitButton.disabled = false;
@@ -215,18 +222,23 @@ function renderPortal() {
       ${isAdmin() ? '<div class="admin-actions"><button id="manage-team" class="button button-secondary" type="button">Gestionar equipo</button><button id="new-portal" class="button button-primary" type="button">＋ Nuevo contenido</button></div>' : ""}
     </div>
     ${isAdmin() ? `<section id="team-management" class="editor-card hidden">
-      <div class="editor-heading"><div><h3>Administrar equipo</h3><p class="muted small">Crear cuentas y gestionar roles y departamentos.</p></div><button id="close-team" class="text-button" type="button">Cerrar</button></div>
+      <div class="editor-heading"><div><h3>Administrar equipo</h3><p class="muted small">Gestiona los perfiles existentes. Las cuentas nuevas se crean desde Firebase Console.</p></div><button id="close-team" class="text-button" type="button">Cerrar</button></div>
+      <div class="team-console-guide">
+        <strong>Alta desde SwiftDesk (plan Spark)</strong>
+        <span>La cuenta Auth y su perfil se crean juntos. Las reglas permiten crear perfiles solo a administradores.</span>
+      </div>
       <form id="team-form" class="team-form">
         <div><label for="team-name">Nombre</label><input id="team-name" maxlength="120" required></div>
-        <div><label for="team-email">Correo electrónico</label><input id="team-email" type="email" required></div>
+        <div><label for="team-email">Correo electrónico</label><input id="team-email" type="email" autocomplete="email" required></div>
         <div><label for="team-password">Contraseña inicial</label><input id="team-password" type="password" minlength="6" autocomplete="new-password" required></div>
         <div><label for="team-role">Rol</label><select id="team-role"><option value="advisor">Asesor</option><option value="admin">Administrador</option></select></div>
         <div><label for="team-department">Departamento</label><select id="team-department"><option>Soporte Técnico</option><option>Administración</option><option>Ventas</option><option>Atención al Cliente</option></select></div>
         <button class="button button-primary" type="submit">Crear cuenta</button>
       </form>
       <p id="team-message" class="form-message" role="status" aria-live="polite"></p>
+      <button id="refresh-team" class="button button-secondary" type="button">Actualizar lista</button>
       <div id="team-list" class="team-list"><p class="muted small">Cargando miembros...</p></div>
-      <p class="muted small">Desactivar acceso elimina el perfil de SwiftDesk, pero no la cuenta de Firebase Authentication; elimínala también en Firebase Console.</p>
+      <p class="muted small">Desactivar acceso elimina el perfil SwiftDesk, pero no la cuenta Auth. Para revocar completamente el acceso, elimina también esa cuenta en Firebase Console.</p>
     </section>` : ""}
     ${isAdmin() ? `<form id="portal-form" class="editor-card hidden">
       <div class="editor-heading"><h3>${editingPortalId ? "Editar contenido" : "Publicar contenido"}</h3><button id="cancel-portal" class="text-button" type="button">Cancelar</button></div>
@@ -248,6 +260,7 @@ function bindPortalActions() {
   });
   document.querySelector("#close-team")?.addEventListener("click", () => teamPanel?.classList.add("hidden"));
   document.querySelector("#team-form")?.addEventListener("submit", createTeamMember);
+  document.querySelector("#refresh-team")?.addEventListener("click", loadTeamMembers);
   document.querySelector("#new-portal")?.addEventListener("click", () => {
     editingPortalId = null;
     form?.classList.remove("hidden");
@@ -644,9 +657,10 @@ if (!firebaseConfigured) {
       sendPasswordResetEmail: authSdk.sendPasswordResetEmail, signOut: authSdk.signOut,
       onAuthStateChanged: authSdk.onAuthStateChanged,
       collection: firestoreSdk.collection, doc: firestoreSdk.doc, getDoc: firestoreSdk.getDoc,
-      getDocs: firestoreSdk.getDocs, addDoc: firestoreSdk.addDoc, setDoc: firestoreSdk.setDoc,
+      getDocs: firestoreSdk.getDocs, addDoc: firestoreSdk.addDoc,
       updateDoc: firestoreSdk.updateDoc, deleteDoc: firestoreSdk.deleteDoc,
       onSnapshot: firestoreSdk.onSnapshot, serverTimestamp: firestoreSdk.serverTimestamp,
+      setDoc: firestoreSdk.setDoc,
       initializeApp: appSdk.initializeApp, getAuth: authSdk.getAuth,
       createUserWithEmailAndPassword: authSdk.createUserWithEmailAndPassword,
       deleteUser: authSdk.deleteUser, deleteApp: appSdk.deleteApp,

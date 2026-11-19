@@ -99,6 +99,10 @@ input::placeholder, textarea::placeholder { color: #a7b0be; }
 .admin-actions { display: flex; gap: 8px; }
 .admin-actions .button { margin-left: 0; }
 .editor-heading .muted { margin: 4px 0 0; }
+.team-console-guide { background: #f5f8fc; border-radius: 8px; color: #647187; display: grid; font-size: 11px; gap: 7px; line-height: 1.55; padding: 13px; }
+.team-console-guide strong { color: #3b4960; }
+.team-console-guide code { color: var(--blue); font-size: 10px; }
+.team-console-guide + .button { align-self: flex-start; }
 .team-form { align-items: end; display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .team-form > div { display: flex; flex-direction: column; gap: 6px; }
 .team-form input, .team-form select { background: white; border: 1px solid #dfe5ee; border-radius: 8px; color: var(--ink); font-size: 11px; min-height: 39px; padding: 9px; }
