@@ -55,7 +55,11 @@
             <h1 id="greeting">Buenos días</h1>
             <p id="welcome-copy" class="muted">Aquí tienes las novedades y recursos para tu jornada.</p>
           </div>
-          <div class="date-card"><span class="date-icon">▦</span><span id="today-date"></span></div>
+          <div class="welcome-tools">
+            <button id="refresh-workspace" class="button button-secondary refresh-button" type="button"><span aria-hidden="true">↻</span> Actualizar datos</button>
+            <span id="last-sync" class="muted small">Consultando datos guardados...</span>
+            <div class="date-card"><span class="date-icon">▦</span><span id="today-date"></span></div>
+          </div>
         </section>
         <label class="global-search" for="global-search">
           <span aria-hidden="true">⌕</span>
@@ -67,7 +71,7 @@
       </div>
       <footer class="live-banner">
         <div class="live-icon">i</div>
-        <div class="live-copy"><strong>Comunicado de operaciones</strong><span id="announcement-text">Cargando comunicados...</span></div>
+        <div class="live-copy"><strong>Comunicado de operaciones</strong><span id="announcement-text">Usa «Actualizar datos» para consultar los comunicados más recientes.</span></div>
         <div class="duty-pill"><span class="duty-dot"></span><span>De guardia:</span><strong id="current-duty">Sin turno asignado</strong></div>
       </footer>
     </main>

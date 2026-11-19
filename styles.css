@@ -84,6 +84,10 @@ input::placeholder, textarea::placeholder { color: #a7b0be; }
 .welcome-row { align-items: center; display: flex; justify-content: space-between; margin-bottom: 25px; }
 .welcome-row h1 { font: 700 25px Manrope, sans-serif; letter-spacing: -.04em; margin: 0 0 5px; }
 .welcome-row .muted { font-size: 12px; margin: 0; }
+.welcome-tools { align-items: flex-end; display: flex; flex-direction: column; gap: 5px; }
+.refresh-button { font-size: 10px; min-height: 34px; padding: 7px 10px; }
+.refresh-button span { font-size: 15px; }
+#last-sync { font-size: 9px; text-align: right; }
 .date-card { align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 8px; color: #718096; display: flex; font-size: 10px; gap: 9px; padding: 11px 13px; text-transform: capitalize; }
 .date-icon { color: var(--blue); font-size: 15px; }
 .global-search { align-items: center; background: white; border: 1px solid #e6eaf0; border-radius: 9px; box-shadow: 0 4px 12px rgba(33, 54, 84, .025); color: #8390a3; display: flex; gap: 10px; margin-bottom: 35px; padding: 0 13px; }

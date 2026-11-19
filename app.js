@@ -21,9 +21,8 @@ let portalItems = [];
 let shifts = [];
 let teamMembers = [];
 let toastTimer;
-let unsubscribePortal = null;
-let unsubscribeShifts = null;
 let editingPortalId = null;
+let pendingAuthRedirectReason = null;
 
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (character) => ({
@@ -31,14 +30,95 @@ function escapeHtml(value = "") {
   })[character]);
 }
 
-async function loadTeamMembers() {
+function cacheKey(collectionName, uid = currentUser?.uid) {
+  return `swiftdesk:${firebaseConfig.projectId}:${uid}:${collectionName}:v1`;
+}
+
+function validCacheItem(collectionName, item) {
+  if (!item || typeof item !== "object" || typeof item.id !== "string") return false;
+  if (collectionName === "portal") {
+    return typeof item.title === "string" && typeof item.body === "string" &&
+      (item.category === undefined || typeof item.category === "string") &&
+      (item.published === undefined || typeof item.published === "boolean") &&
+      (item.updatedAt === undefined || typeof item.updatedAt === "string");
+  }
+  if (collectionName === "shifts") {
+    return ["person", "date", "start", "end", "department"].every((key) => typeof item[key] === "string");
+  }
+  if (collectionName === "team") {
+    return ["name", "email", "department"].every((key) => typeof item[key] === "string") &&
+      ["admin", "advisor"].includes(item.role);
+  }
+  return false;
+}
+
+function readLocalCache(collectionName) {
+  if (!currentUser) return null;
+  const key = cacheKey(collectionName);
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const cache = JSON.parse(raw);
+    if (!Array.isArray(cache.items) || !cache.items.every((item) => validCacheItem(collectionName, item)) ||
+        !Number.isFinite(cache.savedAt)) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return cache;
+  } catch (error) {
+    showToast(`No se pudo leer la caché local de ${collectionName}: ${error.message}`);
+    return null;
+  }
+}
+
+function writeLocalCache(collectionName, items) {
+  if (!currentUser) return false;
+  try {
+    localStorage.setItem(cacheKey(collectionName), JSON.stringify({ savedAt: Date.now(), items }));
+    return true;
+  } catch (error) {
+    showToast(`No se pudo guardar ${collectionName} localmente: ${error.message}`);
+    return false;
+  }
+}
+
+function clearLocalDataCache(uid) {
+  for (const collectionName of ["portal", "shifts", "team"]) {
+    try {
+      localStorage.removeItem(cacheKey(collectionName, uid));
+    } catch (error) {
+      showToast(`No se pudo limpiar la caché de ${collectionName}: ${error.message}`);
+    }
+  }
+}
+
+function cacheablePortalItem(snapshotDoc) {
+  const item = snapshotDoc.data();
+  const updatedAt = item.updatedAt?.toDate ? item.updatedAt.toDate().toISOString() : item.updatedAt;
+  return { ...item, id: snapshotDoc.id, updatedAt };
+}
+
+function cacheableTeamMember(snapshotDoc) {
+  const member = snapshotDoc.data();
+  return {
+    id: snapshotDoc.id,
+    name: member.name || "",
+    email: member.email || "",
+    role: member.role || "advisor",
+    department: member.department || ""
+  };
+}
+
+function saveTeamCache() {
+  writeLocalCache("team", teamMembers.map(({ id, name, email, role, department }) => ({
+    id, name, email, role, department
+  })));
+}
+
+function renderTeamMembers() {
   const list = document.querySelector("#team-list");
   if (!list) return;
-  list.innerHTML = '<p class="muted small">Cargando miembros...</p>';
-  try {
-    const snapshot = await firebase.getDocs(firebase.collection(firebase.db, "users"));
-    teamMembers = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
-    list.innerHTML = teamMembers.map((member) => `<article class="team-member">
+  list.innerHTML = teamMembers.map((member) => `<article class="team-member">
       <div><strong>${escapeHtml(member.name || "Sin nombre")}</strong><span>${escapeHtml(member.email || "")} · ${escapeHtml(member.department || "Sin departamento")}</span></div>
       <select class="member-role" data-id="${escapeHtml(member.id)}" aria-label="Rol de ${escapeHtml(member.name || member.email || "usuario")}" ${member.id === currentUser.uid ? "disabled" : ""}>
         <option value="advisor" ${member.role === "advisor" ? "selected" : ""}>Asesor</option>
@@ -49,37 +129,69 @@ async function loadTeamMembers() {
       </select>
       <button class="text-button danger deactivate-member" data-id="${escapeHtml(member.id)}" type="button" ${member.id === currentUser.uid ? "disabled" : ""}>Desactivar</button>
     </article>`).join("") || '<p class="muted small">No hay perfiles registrados.</p>';
-    list.querySelectorAll(".member-role").forEach((select) => select.addEventListener("change", async () => {
-      try {
-        await firebase.updateDoc(firebase.doc(firebase.db, "users", select.dataset.id), { role: select.value });
-        showToast("Rol actualizado.");
-      } catch (error) {
-        showToast(`No se pudo actualizar el rol: ${error.message}`);
-        await loadTeamMembers();
-      }
-    }));
-    list.querySelectorAll(".member-department").forEach((select) => select.addEventListener("change", async () => {
-      try {
-        await firebase.updateDoc(firebase.doc(firebase.db, "users", select.dataset.id), { department: select.value });
-        showToast("Departamento actualizado.");
-      } catch (error) {
-        showToast(`No se pudo actualizar el departamento: ${error.message}`);
-        await loadTeamMembers();
-      }
-    }));
-    list.querySelectorAll(".deactivate-member").forEach((button) => button.addEventListener("click", async () => {
-      const member = teamMembers.find((entry) => entry.id === button.dataset.id);
-      if (!member || !window.confirm(`¿Desactivar el acceso SwiftDesk de ${member.name || member.email}?`)) return;
-      try {
-        await firebase.deleteDoc(firebase.doc(firebase.db, "users", member.id));
-        showToast("Perfil SwiftDesk desactivado. Elimina la cuenta Auth desde Firebase Console.");
-        await loadTeamMembers();
-      } catch (error) {
-        showToast(`No se pudo desactivar: ${error.message}`);
-      }
-    }));
+  list.querySelectorAll(".member-role").forEach((select) => select.addEventListener("change", async () => {
+    const member = teamMembers.find((entry) => entry.id === select.dataset.id);
+    try {
+      await firebase.updateDoc(firebase.doc(firebase.db, "users", select.dataset.id), { role: select.value });
+      if (member) member.role = select.value;
+      saveTeamCache();
+      showToast("Rol actualizado.");
+    } catch (error) {
+      showToast(`No se pudo actualizar el rol: ${error.message}`);
+      select.value = member?.role || "advisor";
+    }
+  }));
+  list.querySelectorAll(".member-department").forEach((select) => select.addEventListener("change", async () => {
+    const member = teamMembers.find((entry) => entry.id === select.dataset.id);
+    try {
+      await firebase.updateDoc(firebase.doc(firebase.db, "users", select.dataset.id), { department: select.value });
+      if (member) member.department = select.value;
+      saveTeamCache();
+      showToast("Departamento actualizado.");
+    } catch (error) {
+      showToast(`No se pudo actualizar el departamento: ${error.message}`);
+      if (member) select.value = member.department;
+    }
+  }));
+  list.querySelectorAll(".deactivate-member").forEach((button) => button.addEventListener("click", async () => {
+    const member = teamMembers.find((entry) => entry.id === button.dataset.id);
+    if (!member || !window.confirm(`¿Desactivar el acceso SwiftDesk de ${member.name || member.email}?`)) return;
+    try {
+      await firebase.deleteDoc(firebase.doc(firebase.db, "users", member.id));
+      teamMembers = teamMembers.filter((entry) => entry.id !== member.id);
+      saveTeamCache();
+      renderTeamMembers();
+      showToast("Perfil SwiftDesk desactivado. Elimina la cuenta Auth desde Firebase Console.");
+    } catch (error) {
+      showToast(`No se pudo desactivar: ${error.message}`);
+    }
+  }));
+}
+
+async function loadTeamMembers(forceRefresh = false) {
+  const list = document.querySelector("#team-list");
+  if (!list) return;
+  const cached = readLocalCache("team");
+  if (cached && !forceRefresh) {
+    teamMembers = cached.items;
+    renderTeamMembers();
+    return;
+  }
+  if (cached) teamMembers = cached.items;
+  list.innerHTML = '<p class="muted small">Cargando miembros...</p>';
+  try {
+    const snapshot = await firebase.getDocs(firebase.collection(firebase.db, "users"));
+    teamMembers = snapshot.docs.map(cacheableTeamMember);
+    saveTeamCache();
+    renderTeamMembers();
   } catch (error) {
-    list.innerHTML = `<p class="form-message error">No se pudo cargar el equipo: ${escapeHtml(error.message)}</p>`;
+    if (cached) {
+      teamMembers = cached.items;
+      renderTeamMembers();
+      showToast(`No se pudo actualizar el equipo; se muestran los datos guardados: ${error.message}`);
+    } else {
+      list.innerHTML = `<p class="form-message error">No se pudo cargar el equipo: ${escapeHtml(error.message)}</p>`;
+    }
   }
 }
 
@@ -119,9 +231,12 @@ async function createTeamMember(event) {
       createdAt: firebase.serverTimestamp()
     });
 
+    teamMembers = teamMembers.filter((member) => member.id !== createdUser.uid);
+    teamMembers.push({ id: createdUser.uid, name, email, role, department });
+    saveTeamCache();
     form.reset();
     showMessage(message, `Cuenta creada para ${email}. Comunica la contraseña inicial por un canal seguro.`);
-    await loadTeamMembers();
+    renderTeamMembers();
   } catch (error) {
     if (createdUser) {
       try {
@@ -180,7 +295,9 @@ function isAdmin() {
 
 function formatDate(value) {
   if (!value) return "";
-  const date = value.toDate ? value.toDate() : new Date(`${value}T12:00:00`);
+  const date = value.toDate
+    ? value.toDate()
+    : new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
   return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("es", {
     day: "numeric", month: "long", year: "numeric"
   }).format(date);
@@ -193,13 +310,6 @@ function updateGreeting() {
   document.querySelector("#today-date").textContent = new Intl.DateTimeFormat("es", {
     weekday: "long", day: "numeric", month: "long"
   }).format(new Date());
-}
-
-function cleanupSubscriptions() {
-  if (unsubscribePortal) unsubscribePortal();
-  if (unsubscribeShifts) unsubscribeShifts();
-  unsubscribePortal = null;
-  unsubscribeShifts = null;
 }
 
 function renderPortal() {
@@ -216,7 +326,7 @@ function renderPortal() {
       ${isAdmin() ? '<div class="admin-actions"><button id="manage-team" class="button button-secondary" type="button">Gestionar equipo</button><button id="new-portal" class="button button-primary" type="button">＋ Nuevo contenido</button></div>' : ""}
     </div>
     ${isAdmin() ? `<section id="team-management" class="editor-card hidden">
-      <div class="editor-heading"><div><h3>Administrar equipo</h3><p class="muted small">Gestiona los perfiles existentes. Las cuentas nuevas se crean desde Firebase Console.</p></div><button id="close-team" class="text-button" type="button">Cerrar</button></div>
+      <div class="editor-heading"><div><h3>Administrar equipo</h3><p class="muted small">Gestiona los perfiles del equipo y crea cuentas desde SwiftDesk.</p></div><button id="close-team" class="text-button" type="button">Cerrar</button></div>
       <div class="team-console-guide">
         <strong>Alta desde SwiftDesk (plan Spark)</strong>
         <span>La cuenta Auth y su perfil se crean juntos. Las reglas permiten crear perfiles solo a administradores.</span>
@@ -254,7 +364,7 @@ function bindPortalActions() {
   });
   document.querySelector("#close-team")?.addEventListener("click", () => teamPanel?.classList.add("hidden"));
   document.querySelector("#team-form")?.addEventListener("submit", createTeamMember);
-  document.querySelector("#refresh-team")?.addEventListener("click", loadTeamMembers);
+  document.querySelector("#refresh-team")?.addEventListener("click", () => loadTeamMembers(true));
   document.querySelector("#new-portal")?.addEventListener("click", () => {
     editingPortalId = null;
     form?.classList.remove("hidden");
@@ -280,6 +390,11 @@ function bindPortalActions() {
     if (!window.confirm("¿Eliminar esta publicación?")) return;
     try {
       await firebase.deleteDoc(firebase.doc(firebase.db, "portal", button.dataset.id));
+      portalItems = portalItems.filter((item) => item.id !== button.dataset.id);
+      writeLocalCache("portal", portalItems);
+      renderPortal();
+      const query = document.querySelector("#global-search").value;
+      if (query.trim()) renderSearchResults(query);
       showToast("Publicación eliminada.");
     } catch (error) {
       showToast(`No se pudo eliminar: ${error.message}`);
@@ -300,10 +415,21 @@ async function savePortalItem(event) {
     };
     if (editingPortalId) {
       await firebase.updateDoc(firebase.doc(firebase.db, "portal", editingPortalId), payload);
+      portalItems = portalItems.map((item) => item.id === editingPortalId
+        ? { ...item, title, category, body, published: true, updatedAt: new Date().toISOString(), createdBy: currentUser.uid }
+        : item);
     } else {
-      await firebase.addDoc(firebase.collection(firebase.db, "portal"), payload);
+      const created = await firebase.addDoc(firebase.collection(firebase.db, "portal"), payload);
+      portalItems.push({
+        id: created.id, title, category, body, published: true,
+        updatedAt: new Date().toISOString(), createdBy: currentUser.uid
+      });
     }
+    writeLocalCache("portal", portalItems);
     editingPortalId = null;
+    renderPortal();
+    const query = document.querySelector("#global-search").value;
+    if (query.trim()) renderSearchResults(query);
     showToast("Contenido publicado.");
   } catch (error) {
     showToast(`No se pudo guardar: ${error.message}`);
@@ -333,6 +459,10 @@ function renderShifts() {
     if (!window.confirm("¿Eliminar este turno?")) return;
     try {
       await firebase.deleteDoc(firebase.doc(firebase.db, "shifts", button.dataset.id));
+      shifts = shifts.filter((shift) => shift.id !== button.dataset.id);
+      writeLocalCache("shifts", shifts);
+      renderShifts();
+      updateCurrentDuty();
       showToast("Turno eliminado.");
     } catch (error) {
       showToast(`No se pudo eliminar: ${error.message}`);
@@ -351,10 +481,15 @@ async function createShift(event) {
     return;
   }
   try {
-    await firebase.addDoc(firebase.collection(firebase.db, "shifts"), {
+    const shiftData = {
       person, date, start, end, department: "Operaciones",
       createdBy: currentUser.uid, createdAt: firebase.serverTimestamp()
-    });
+    };
+    const created = await firebase.addDoc(firebase.collection(firebase.db, "shifts"), shiftData);
+    shifts.push({ id: created.id, person, date, start, end, department: "Operaciones" });
+    writeLocalCache("shifts", shifts);
+    renderShifts();
+    updateCurrentDuty();
     event.target.reset();
     document.querySelector("#shift-start").value = "09:00";
     document.querySelector("#shift-end").value = "18:00";
@@ -417,18 +552,69 @@ function renderSearchResults(query) {
   }));
 }
 
-function subscribeToWorkspace() {
-  cleanupSubscriptions();
-  unsubscribePortal = firebase.onSnapshot(firebase.collection(firebase.db, "portal"), (snapshot) => {
-    portalItems = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
-    if (activeView === "portal") renderPortal();
-    if (document.querySelector("#global-search").value.trim()) renderSearchResults(document.querySelector("#global-search").value);
-  }, (error) => showToast(`Error al cargar el portal: ${error.message}`));
-  unsubscribeShifts = firebase.onSnapshot(firebase.collection(firebase.db, "shifts"), (snapshot) => {
-    shifts = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
-    if (activeView === "calendar") renderShifts();
-    updateCurrentDuty();
-  }, (error) => showToast(`Error al cargar las guardias: ${error.message}`));
+function updateLastSyncLabel() {
+  const label = document.querySelector("#last-sync");
+  if (!label) return;
+  const timestamps = ["portal", "shifts"]
+    .map((name) => readLocalCache(name)?.savedAt)
+    .filter(Number.isFinite);
+  if (timestamps.length !== 2) {
+    label.textContent = "Datos aún no sincronizados";
+    return;
+  }
+  const lastSync = new Date(Math.min(...timestamps));
+  label.textContent = `Última actualización: ${new Intl.DateTimeFormat("es", {
+    dateStyle: "short", timeStyle: "short"
+  }).format(lastSync)}`;
+}
+
+function cacheableShift(snapshotDoc) {
+  const shift = snapshotDoc.data();
+  return {
+    id: snapshotDoc.id,
+    person: shift.person || "",
+    date: shift.date || "",
+    start: shift.start || "",
+    end: shift.end || "",
+    department: shift.department || "Operaciones"
+  };
+}
+
+async function loadWorkspaceData(forceRefresh = false) {
+  const portalCache = readLocalCache("portal");
+  const shiftsCache = readLocalCache("shifts");
+  if (portalCache) portalItems = portalCache.items;
+  if (shiftsCache) shifts = shiftsCache.items;
+  updateLastSyncLabel();
+  selectView(activeView);
+  updateCurrentDuty();
+
+  const errors = [];
+  const requests = [];
+  if (forceRefresh || !portalCache) {
+    requests.push(firebase.getDocs(firebase.collection(firebase.db, "portal"))
+      .then((snapshot) => {
+        portalItems = snapshot.docs.map(cacheablePortalItem);
+        writeLocalCache("portal", portalItems);
+      })
+      .catch((error) => errors.push(`portal: ${error.message}`)));
+  }
+  if (forceRefresh || !shiftsCache) {
+    requests.push(firebase.getDocs(firebase.collection(firebase.db, "shifts"))
+      .then((snapshot) => {
+        shifts = snapshot.docs.map(cacheableShift);
+        writeLocalCache("shifts", shifts);
+      })
+      .catch((error) => errors.push(`guardias: ${error.message}`)));
+  }
+  await Promise.all(requests);
+  updateLastSyncLabel();
+  selectView(activeView);
+  updateCurrentDuty();
+  const query = document.querySelector("#global-search").value;
+  if (query.trim()) renderSearchResults(query);
+  if (errors.length) showToast(`No se pudieron actualizar los datos (${errors.join("; ")}).`);
+  else if (forceRefresh) showToast("Datos actualizados desde Firebase.");
 }
 
 function humanizeAuthError(error) {
@@ -445,22 +631,30 @@ function humanizeAuthError(error) {
 }
 
 async function handleAuthState(user) {
-  cleanupSubscriptions();
+  const previousUid = currentUser?.uid;
   currentUser = user;
   currentProfile = null;
+  portalItems = [];
+  shifts = [];
+  teamMembers = [];
   if (!user) {
-    window.location.replace("./index.html?reason=session");
+    if (previousUid) clearLocalDataCache(previousUid);
+    const reason = pendingAuthRedirectReason || "session";
+    pendingAuthRedirectReason = null;
+    window.location.replace(`./index.html?reason=${reason}`);
     return;
   }
   try {
     const profileSnapshot = await firebase.getDoc(firebase.doc(firebase.db, "users", user.uid));
     if (!profileSnapshot.exists()) {
+      pendingAuthRedirectReason = "profile";
       await firebase.signOut(firebase.auth);
       window.location.replace("./index.html?reason=profile");
       return;
     }
     const profile = profileSnapshot.data();
     if (!["admin", "advisor"].includes(profile.role)) {
+      pendingAuthRedirectReason = "profile";
       await firebase.signOut(firebase.auth);
       window.location.replace("./index.html?reason=profile");
       return;
@@ -475,8 +669,7 @@ async function handleAuthState(user) {
     document.querySelector("#user-avatar").textContent = displayName.charAt(0).toLocaleUpperCase();
     document.querySelector("#welcome-copy").textContent = `Qué bueno tenerte aquí, ${displayName}. Aquí tienes las novedades y recursos para tu jornada.`;
     updateGreeting();
-    selectView(activeView);
-    subscribeToWorkspace();
+    await loadWorkspaceData();
   } catch (error) {
     dashboardStatus.textContent = `No se pudo validar tu perfil. Revisa tu conexión y vuelve a cargar: ${error.message}`;
     dashboardStatus.classList.add("error");
@@ -581,7 +774,7 @@ function closeSidebar() {
 function setupUI() {
   document.querySelector("#logout-button").addEventListener("click", async () => {
     try {
-      cleanupSubscriptions();
+      clearLocalDataCache(currentUser.uid);
       await firebase.signOut(firebase.auth);
       window.location.replace("./index.html");
     } catch (error) {
@@ -589,6 +782,20 @@ function setupUI() {
     }
   });
   document.querySelectorAll(".nav-link").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
+  document.querySelector("#refresh-workspace").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const label = button.innerHTML;
+    button.disabled = true;
+    button.textContent = "Actualizando...";
+    try {
+      await loadWorkspaceData(true);
+    } catch (error) {
+      showToast(`No se pudieron actualizar los datos: ${error.message}`);
+    } finally {
+      button.innerHTML = label;
+      button.disabled = false;
+    }
+  });
   document.querySelector("#global-search").addEventListener("input", (event) => renderSearchResults(event.target.value));
   document.querySelector("#open-sidebar").addEventListener("click", openSidebar);
   document.querySelector("#close-sidebar").addEventListener("click", closeSidebar);

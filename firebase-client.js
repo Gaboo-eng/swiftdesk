@@ -38,7 +38,6 @@ export const firebaseReady = (async () => {
     setDoc: firestoreSdk.setDoc,
     updateDoc: firestoreSdk.updateDoc,
     deleteDoc: firestoreSdk.deleteDoc,
-    onSnapshot: firestoreSdk.onSnapshot,
     serverTimestamp: firestoreSdk.serverTimestamp
   };
 })();

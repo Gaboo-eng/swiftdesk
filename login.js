@@ -23,24 +23,6 @@ function humanizeAuthError(error) {
   return messages[error.code] || `No se pudo completar la operación: ${error.message}`;
 }
 
-async function validateAndOpenDashboard(user) {
-  try {
-    const snapshot = await firebase.getDoc(firebase.doc(firebase.db, "users", user.uid));
-    const role = snapshot.data()?.role;
-    if (!snapshot.exists() || !["admin", "advisor"].includes(role)) {
-      await firebase.signOut(firebase.auth);
-      showMessage("La cuenta no tiene un perfil válido en SwiftDesk. Contacta al administrador.", true);
-      loginButton.disabled = false;
-      return;
-    }
-    window.location.replace("./dashboard.html");
-  } catch (error) {
-    await firebase.signOut(firebase.auth);
-    showMessage(`No se pudo validar tu perfil: ${error.message}`, true);
-    loginButton.disabled = false;
-  }
-}
-
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const email = document.querySelector("#login-email").value.trim();
@@ -50,8 +32,8 @@ form.addEventListener("submit", async (event) => {
   loginButton.disabled = true;
   showMessage("Verificando tus datos...");
   try {
-    const credential = await firebase.signInWithEmailAndPassword(firebase.auth, email, password);
-    await validateAndOpenDashboard(credential.user);
+    await firebase.signInWithEmailAndPassword(firebase.auth, email, password);
+    window.location.replace("./dashboard.html");
   } catch (error) {
     showMessage(humanizeAuthError(error), true);
     loginButton.disabled = false;
