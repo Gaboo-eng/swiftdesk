@@ -480,6 +480,7 @@ async function handleAuthState(user) {
   } catch (error) {
     dashboardStatus.textContent = `No se pudo validar tu perfil. Revisa tu conexión y vuelve a cargar: ${error.message}`;
     dashboardStatus.classList.add("error");
+    dashboardStatus.classList.remove("hidden");
   }
 }
 
@@ -603,4 +604,5 @@ try {
 } catch (error) {
   dashboardStatus.textContent = `No se pudo iniciar Firebase: ${error.message}`;
   dashboardStatus.classList.add("error");
+  dashboardStatus.classList.remove("hidden");
 }

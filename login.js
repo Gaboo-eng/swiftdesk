@@ -50,7 +50,8 @@ form.addEventListener("submit", async (event) => {
   loginButton.disabled = true;
   showMessage("Verificando tus datos...");
   try {
-    await firebase.signInWithEmailAndPassword(firebase.auth, email, password);
+    const credential = await firebase.signInWithEmailAndPassword(firebase.auth, email, password);
+    await validateAndOpenDashboard(credential.user);
   } catch (error) {
     showMessage(humanizeAuthError(error), true);
     loginButton.disabled = false;
@@ -81,16 +82,8 @@ showMessage("Conectando con Firebase...");
 
 try {
   firebase = await firebaseReady;
-  firebase.onAuthStateChanged(firebase.auth, (user) => {
-    if (user) {
-      loginButton.disabled = true;
-      showMessage("Sesión encontrada. Abriendo SwiftDesk...");
-      void validateAndOpenDashboard(user);
-    } else {
-      loginButton.disabled = false;
-      if (!reason) showMessage("");
-    }
-  });
+  loginButton.disabled = false;
+  if (!reason) showMessage("");
 } catch (error) {
   configNotice.textContent = `No se pudo iniciar Firebase: ${error.message}`;
   configNotice.classList.remove("hidden");
