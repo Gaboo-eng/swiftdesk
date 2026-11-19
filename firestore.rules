@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function validRole(role) {
+      return role in ['admin', 'advisor'];
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isAdvisorOrAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'advisor'];
+    }
+
+    match /users/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'email', 'role', 'department', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254
+        && validRole(request.resource.data.role)
+        && request.resource.data.department is string
+        && request.resource.data.department.size() <= 60;
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'email', 'role', 'department', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254
+        && validRole(request.resource.data.role)
+        && request.resource.data.department is string
+        && request.resource.data.department.size() <= 60
+        && (request.auth.uid != userId || request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin() && request.auth.uid != userId;
+    }
+
+    match /portal/{postId} {
+      allow read: if isAdvisorOrAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['title', 'body', 'category', 'published', 'updatedAt', 'createdBy'])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 10000
+        && request.resource.data.category is string
+        && request.resource.data.category.size() <= 60
+        && request.resource.data.published == true
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['title', 'body', 'category', 'published', 'updatedAt', 'createdBy'])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 10000
+        && request.resource.data.category is string
+        && request.resource.data.category.size() <= 60
+        && request.resource.data.published == true;
+      allow delete: if isAdmin();
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if isAdvisorOrAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['person', 'date', 'start', 'end', 'department', 'createdBy', 'createdAt'])
+        && request.resource.data.person is string
+        && request.resource.data.person.size() > 0
+        && request.resource.data.person.size() <= 120
+        && request.resource.data.date is string
+        && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.start is string
+        && request.resource.data.start.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
+        && request.resource.data.end is string
+        && request.resource.data.end.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
+        && request.resource.data.end > request.resource.data.start
+        && request.resource.data.department is string
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['person', 'date', 'start', 'end', 'department', 'createdBy', 'createdAt'])
+        && request.resource.data.person is string
+        && request.resource.data.person.size() > 0
+        && request.resource.data.person.size() <= 120
+        && request.resource.data.date is string
+        && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.start is string
+        && request.resource.data.start.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
+        && request.resource.data.end is string
+        && request.resource.data.end.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
+        && request.resource.data.end > request.resource.data.start
+        && request.resource.data.department is string;
+      allow delete: if isAdmin();
+    }
+
+    match /suggestions/{suggestionId} {
+      allow create: if isAdvisorOrAdmin()
+        && request.resource.data.keys().hasOnly(['text', 'uid', 'email', 'createdAt'])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 5
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
