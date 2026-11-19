@@ -1,12 +1,12 @@
 // Firebase web app configuration. These values identify the project; they are
 // not a service-account key. Never put private credentials in frontend files.
 export const firebaseConfig = {
-  apiKey: "AIzaSyDG6edEuTVcf3Bq3-k6qh-X9VrmC40woIg",
-  authDomain: "swiftdesk-2c03a.firebaseapp.com",
-  projectId: "swiftdesk-2c03a",
-  storageBucket: "swiftdesk-2c03a.firebasestorage.app",
-  messagingSenderId: "401102154522",
-  appId: "1:401102154522:web:1ed9572ca2aa2b037cdaa3"
+  apiKey: "AIzaSyAPv2wWzE9bLPwf-yX_LcUQ71iHHX7TpFY",
+  authDomain: "swifdesk-5086b.firebaseapp.com",
+  projectId: "swifdesk-5086b",
+  storageBucket: "swifdesk-5086b.firebasestorage.app",
+  messagingSenderId: "683314669237",
+  appId: "1:683314669237:web:8ab6b6f3eb828b83d840fc"
 };
 
 export const firebaseConfigured = Object.values(firebaseConfig).every(
