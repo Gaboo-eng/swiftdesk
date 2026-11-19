@@ -97,29 +97,39 @@ async function createTeamMember(event) {
   }
   const submitButton = event.currentTarget.querySelector('button[type="submit"]');
   submitButton.disabled = true;
+  showMessage(document.querySelector("#team-message"), "Creando cuenta y perfil...");
   let provisionedUser = null;
   let secondaryApp = null;
   try {
     secondaryApp = firebase.initializeApp(firebaseConfig, `swiftdesk-provision-${Date.now()}`);
     const secondaryAuth = firebase.getAuth(secondaryApp);
+    await firebase.setPersistence(secondaryAuth, firebase.inMemoryPersistence);
     const credential = await firebase.createUserWithEmailAndPassword(secondaryAuth, email, password);
     provisionedUser = credential.user;
     await firebase.setDoc(firebase.doc(firebase.db, "users", provisionedUser.uid), {
       name, email, role, department, createdAt: firebase.serverTimestamp()
     });
     event.currentTarget.reset();
-    showToast("Cuenta creada y agregada al equipo.");
+    showMessage(document.querySelector("#team-message"), `Cuenta creada para ${email}. El asesor puede iniciar sesión con la contraseña inicial asignada.`);
     await loadTeamMembers();
   } catch (error) {
     if (provisionedUser) {
       try {
         await firebase.deleteUser(provisionedUser);
+        showMessage(
+          document.querySelector("#team-message"),
+          `No se guardó el perfil en Firestore y se eliminó la cuenta Auth recién creada. Error: ${error.message}`,
+          true
+        );
       } catch (cleanupError) {
-        showToast(`No se pudo guardar el perfil (${error.message}) ni limpiar la cuenta Auth (${cleanupError.message}). Elimina la cuenta desde Firebase Console.`);
-        return;
+        showMessage(
+          document.querySelector("#team-message"),
+          `Falló el perfil (${error.message}) y no se pudo eliminar la cuenta Auth (${cleanupError.message}). Revisa Authentication → Users.`,
+          true
+        );
       }
     } else {
-      showToast(`No se pudo crear la cuenta: ${humanizeAuthError(error)}`);
+      showMessage(document.querySelector("#team-message"), `No se pudo crear la cuenta: ${humanizeAuthError(error)}`, true);
     }
   } finally {
     if (secondaryApp) {
@@ -214,6 +224,7 @@ function renderPortal() {
         <div><label for="team-department">Departamento</label><select id="team-department"><option>Soporte Técnico</option><option>Administración</option><option>Ventas</option><option>Atención al Cliente</option></select></div>
         <button class="button button-primary" type="submit">Crear cuenta</button>
       </form>
+      <p id="team-message" class="form-message" role="status" aria-live="polite"></p>
       <div id="team-list" class="team-list"><p class="muted small">Cargando miembros...</p></div>
       <p class="muted small">Desactivar acceso elimina el perfil de SwiftDesk, pero no la cuenta de Firebase Authentication; elimínala también en Firebase Console.</p>
     </section>` : ""}
@@ -435,6 +446,8 @@ function humanizeAuthError(error) {
     "auth/invalid-credential": "El correo o la contraseña no son correctos.",
     "auth/user-not-found": "No encontramos una cuenta con ese correo.",
     "auth/wrong-password": "La contraseña no es correcta.",
+    "auth/email-already-in-use": "Ese correo ya tiene una cuenta en Firebase Authentication.",
+    "auth/weak-password": "La contraseña debe cumplir la política de Firebase y tener al menos 6 caracteres.",
     "auth/too-many-requests": "Demasiados intentos. Espera un momento y vuelve a probar.",
     "auth/invalid-email": "Escribe un correo electrónico válido."
   };
@@ -608,6 +621,9 @@ function setupUI() {
 }
 
 setupUI();
+const loginButton = document.querySelector("#login-form button[type='submit']");
+loginButton.disabled = true;
+showMessage(loginMessage, "Conectando con Firebase...");
 
 if (!firebaseConfigured) {
   configNotice.textContent = "La aplicación todavía no está conectada a Firebase. Copia la configuración web de tu proyecto en firebase-config.js para habilitar el acceso.";
@@ -633,8 +649,14 @@ if (!firebaseConfigured) {
       onSnapshot: firestoreSdk.onSnapshot, serverTimestamp: firestoreSdk.serverTimestamp,
       initializeApp: appSdk.initializeApp, getAuth: authSdk.getAuth,
       createUserWithEmailAndPassword: authSdk.createUserWithEmailAndPassword,
-      deleteUser: authSdk.deleteUser, deleteApp: appSdk.deleteApp
+      deleteUser: authSdk.deleteUser, deleteApp: appSdk.deleteApp,
+      setPersistence: authSdk.setPersistence,
+      browserLocalPersistence: authSdk.browserLocalPersistence,
+      inMemoryPersistence: authSdk.inMemoryPersistence
     };
+    await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
+    loginButton.disabled = false;
+    showMessage(loginMessage, "");
     authSdk.onAuthStateChanged(auth, handleAuthState);
   } catch (error) {
     configNotice.textContent = `No se pudo iniciar Firebase: ${error.message}`;
