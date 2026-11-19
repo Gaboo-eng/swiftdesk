@@ -1,5 +1,6 @@
-// Your web app's Firebase configuration
-const firebaseConfig = {
+// Firebase web app configuration. These values identify the project; they are
+// not a service-account key. Never put private credentials in frontend files.
+export const firebaseConfig = {
   apiKey: "AIzaSyAPv2wWzE9bLPwf-yX_LcUQ71iHHX7TpFY",
   authDomain: "swifdesk-5086b.firebaseapp.com",
   projectId: "swifdesk-5086b",
@@ -8,5 +9,6 @@ const firebaseConfig = {
   appId: "1:683314669237:web:8ab6b6f3eb828b83d840fc"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+export const firebaseConfigured = Object.values(firebaseConfig).every(
+  (value) => typeof value === "string" && value.trim().length > 0
+);
