@@ -34,6 +34,7 @@ export const firebaseReady = (async () => {
     doc: firestoreSdk.doc,
     getDoc: firestoreSdk.getDoc,
     getDocs: firestoreSdk.getDocs,
+    runTransaction: firestoreSdk.runTransaction,
     addDoc: firestoreSdk.addDoc,
     setDoc: firestoreSdk.setDoc,
     updateDoc: firestoreSdk.updateDoc,

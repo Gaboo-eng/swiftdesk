@@ -21,6 +21,10 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'advisor'];
     }
 
+    function legacyModuleEnabled(moduleId) {
+      return !exists(/databases/$(database)/documents/workspace/$(moduleId));
+    }
+
     match /users/{userId} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
       allow create: if isAdmin()
@@ -48,64 +52,26 @@ service cloud.firestore {
       allow delete: if isAdmin() && request.auth.uid != userId;
     }
 
+    match /workspace/{moduleId} {
+      allow get: if moduleId in ['portal', 'shifts', 'speeches'] && isAdvisorOrAdmin();
+      allow list: if false;
+      allow create, update: if moduleId in ['portal', 'shifts', 'speeches']
+        && isAdmin()
+        && request.resource.data.keys().hasAll(['items', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['items', 'updatedAt'])
+        && request.resource.data.items is list
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if false;
+    }
+
     match /portal/{postId} {
-      allow read: if isAdvisorOrAdmin();
-      allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['title', 'body', 'category', 'published', 'updatedAt', 'createdBy'])
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
-        && request.resource.data.title.size() <= 120
-        && request.resource.data.body is string
-        && request.resource.data.body.size() > 0
-        && request.resource.data.body.size() <= 10000
-        && request.resource.data.category is string
-        && request.resource.data.category.size() <= 60
-        && request.resource.data.published == true
-        && request.resource.data.createdBy == request.auth.uid;
-      allow update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['title', 'body', 'category', 'published', 'updatedAt', 'createdBy'])
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
-        && request.resource.data.title.size() <= 120
-        && request.resource.data.body is string
-        && request.resource.data.body.size() > 0
-        && request.resource.data.body.size() <= 10000
-        && request.resource.data.category is string
-        && request.resource.data.category.size() <= 60
-        && request.resource.data.published == true;
-      allow delete: if isAdmin();
+      allow read: if isAdvisorOrAdmin() && legacyModuleEnabled('portal');
+      allow create, update, delete: if false;
     }
 
     match /shifts/{shiftId} {
-      allow read: if isAdvisorOrAdmin();
-      allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['person', 'date', 'start', 'end', 'department', 'createdBy', 'createdAt'])
-        && request.resource.data.person is string
-        && request.resource.data.person.size() > 0
-        && request.resource.data.person.size() <= 120
-        && request.resource.data.date is string
-        && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.start is string
-        && request.resource.data.start.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
-        && request.resource.data.end is string
-        && request.resource.data.end.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
-        && request.resource.data.end > request.resource.data.start
-        && request.resource.data.department is string
-        && request.resource.data.createdBy == request.auth.uid;
-      allow update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['person', 'date', 'start', 'end', 'department', 'createdBy', 'createdAt'])
-        && request.resource.data.person is string
-        && request.resource.data.person.size() > 0
-        && request.resource.data.person.size() <= 120
-        && request.resource.data.date is string
-        && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.start is string
-        && request.resource.data.start.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
-        && request.resource.data.end is string
-        && request.resource.data.end.matches('^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$')
-        && request.resource.data.end > request.resource.data.start
-        && request.resource.data.department is string;
-      allow delete: if isAdmin();
+      allow read: if isAdvisorOrAdmin() && legacyModuleEnabled('shifts');
+      allow create, update, delete: if false;
     }
 
     match /suggestions/{suggestionId} {

@@ -122,6 +122,13 @@ input::placeholder, textarea::placeholder { color: #a7b0be; }
 .team-member .text-button { font-size: 10px; white-space: nowrap; }
 .team-member .text-button:disabled { color: #aab3c0; cursor: not-allowed; }
 .content-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.speech-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.speech-card { display: flex; flex-direction: column; min-width: 0; }
+.speech-card-heading h3 { color: #2a384e; font: 700 14px Manrope, sans-serif; margin: 0; }
+.speech-card-heading .eyebrow { margin-bottom: 6px; }
+.speech-description { color: #748197; font-size: 11px; line-height: 1.6; margin: 12px 0; }
+.speech-text { background: #f7f9fc; border: 1px solid #edf0f5; border-radius: 7px; color: #3c4960; font-size: 11px; line-height: 1.7; margin-top: auto; overflow-wrap: anywhere; padding: 12px; white-space: pre-wrap; }
+.speech-card .card-actions { align-items: center; flex-wrap: wrap; }
 .content-card, .editor-card, .shift-card, .placeholder-card { background: white; border: 1px solid #e9edf3; border-radius: 10px; }
 .content-card { min-height: 170px; padding: 18px; }
 .card-meta { align-items: center; color: #a0aab8; display: flex; font-size: 9px; justify-content: space-between; }
@@ -208,7 +215,7 @@ input::placeholder, textarea::placeholder { color: #a7b0be; }
   .date-icon { font-size: 17px; }
   .global-search { margin-bottom: 28px; }
   .global-search kbd { display: none; }
-  .content-grid { grid-template-columns: 1fr; }
+  .content-grid, .speech-grid { grid-template-columns: 1fr; }
   .section-heading { align-items: flex-start; gap: 10px; }
   .section-heading .button { font-size: 10px; margin-left: 0; padding: 9px; }
   .admin-actions { flex-direction: column; }

@@ -19,9 +19,16 @@ let currentProfile = null;
 let activeView = "portal";
 let portalItems = [];
 let shifts = [];
+let portalLoaded = false;
+let shiftsLoaded = false;
+let speeches = [];
 let teamMembers = [];
 let toastTimer;
 let editingPortalId = null;
+let editingSpeechId = null;
+let speechesLoaded = false;
+let speechLoadError = "";
+let speechLoadPromise = null;
 let pendingAuthRedirectReason = null;
 
 function escapeHtml(value = "") {
@@ -31,7 +38,8 @@ function escapeHtml(value = "") {
 }
 
 function cacheKey(collectionName, uid = currentUser?.uid) {
-  return `swiftdesk:${firebaseConfig.projectId}:${uid}:${collectionName}:v1`;
+  const version = collectionName === "portal" || collectionName === "shifts" ? 2 : 1;
+  return `swiftdesk:${firebaseConfig.projectId}:${uid}:${collectionName}:v${version}`;
 }
 
 function validCacheItem(collectionName, item) {
@@ -48,6 +56,9 @@ function validCacheItem(collectionName, item) {
   if (collectionName === "team") {
     return ["name", "email", "department"].every((key) => typeof item[key] === "string") &&
       ["admin", "advisor"].includes(item.role);
+  }
+  if (collectionName === "speeches") {
+    return ["title", "description", "text"].every((key) => typeof item[key] === "string");
   }
   return false;
 }
@@ -83,9 +94,12 @@ function writeLocalCache(collectionName, items) {
 }
 
 function clearLocalDataCache(uid) {
-  for (const collectionName of ["portal", "shifts", "team"]) {
+  for (const collectionName of ["portal", "shifts", "team", "speeches"]) {
     try {
       localStorage.removeItem(cacheKey(collectionName, uid));
+      if (collectionName === "portal" || collectionName === "shifts") {
+        localStorage.removeItem(`swiftdesk:${firebaseConfig.projectId}:${uid}:${collectionName}:v1`);
+      }
     } catch (error) {
       showToast(`No se pudo limpiar la caché de ${collectionName}: ${error.message}`);
     }
@@ -95,7 +109,19 @@ function clearLocalDataCache(uid) {
 function cacheablePortalItem(snapshotDoc) {
   const item = snapshotDoc.data();
   const updatedAt = item.updatedAt?.toDate ? item.updatedAt.toDate().toISOString() : item.updatedAt;
-  return { ...item, id: snapshotDoc.id, updatedAt };
+  return {
+    id: snapshotDoc.id,
+    title: item.title || "",
+    body: item.body || "",
+    category: item.category || "General",
+    published: item.published !== false,
+    updatedAt,
+    createdBy: item.createdBy || ""
+  };
+}
+
+function createContentId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function cacheableTeamMember(snapshotDoc) {
@@ -323,7 +349,7 @@ function renderPortal() {
     </article>`).join("");
   mainView.innerHTML = `
     <div class="section-heading"><div><p class="eyebrow">NOVEDADES Y RECURSOS</p><h2>Portal informativo</h2><p class="muted">Procesos, comunicados y recursos para todo el equipo.</p></div>
-      ${isAdmin() ? '<div class="admin-actions"><button id="manage-team" class="button button-secondary" type="button">Gestionar equipo</button><button id="new-portal" class="button button-primary" type="button">＋ Nuevo contenido</button></div>' : ""}
+      ${isAdmin() ? `<div class="admin-actions"><button id="manage-team" class="button button-secondary" type="button">Gestionar equipo</button><button id="new-portal" class="button button-primary" type="button" ${portalLoaded ? "" : "disabled"}>＋ Nuevo contenido</button></div>` : ""}
     </div>
     ${isAdmin() ? `<section id="team-management" class="editor-card hidden">
       <div class="editor-heading"><div><h3>Administrar equipo</h3><p class="muted small">Gestiona los perfiles del equipo y crea cuentas desde SwiftDesk.</p></div><button id="close-team" class="text-button" type="button">Cerrar</button></div>
@@ -349,7 +375,7 @@ function renderPortal() {
       <label for="portal-title">Título</label><input id="portal-title" maxlength="120" required>
       <label for="portal-category">Categoría</label><input id="portal-category" maxlength="60" placeholder="Procesos, comunicado...">
       <label for="portal-body">Contenido</label><textarea id="portal-body" rows="5" maxlength="10000" required></textarea>
-      <button class="button button-primary" type="submit">Guardar y publicar</button>
+      <button class="button button-primary" type="submit" ${portalLoaded ? "" : "disabled"}>Guardar y publicar</button>
     </form>` : ""}
     <div class="content-grid">${cards || '<div class="empty-state"><span>▤</span><h3>Aún no hay publicaciones</h3><p>Los comunicados y procesos aparecerán aquí.</p></div>'}</div>`;
   bindPortalActions();
@@ -389,8 +415,14 @@ function bindPortalActions() {
   document.querySelectorAll(".delete-portal").forEach((button) => button.addEventListener("click", async () => {
     if (!window.confirm("¿Eliminar esta publicación?")) return;
     try {
-      await firebase.deleteDoc(firebase.doc(firebase.db, "portal", button.dataset.id));
-      portalItems = portalItems.filter((item) => item.id !== button.dataset.id);
+      const nextItems = await mutateWorkspaceItems("portal", (items) => {
+        const updated = items.filter((item) => item.id !== button.dataset.id);
+        if (updated.length === items.length) {
+          throw new Error("La publicación ya no existe. Actualiza los datos e inténtalo de nuevo.");
+        }
+        return updated;
+      });
+      portalItems = nextItems;
       writeLocalCache("portal", portalItems);
       renderPortal();
       const query = document.querySelector("#global-search").value;
@@ -404,27 +436,32 @@ function bindPortalActions() {
 
 async function savePortalItem(event) {
   event.preventDefault();
+  const submitButton = event.currentTarget.querySelector('button[type="submit"]');
   const title = document.querySelector("#portal-title").value.trim();
   const category = document.querySelector("#portal-category").value.trim() || "General";
   const body = document.querySelector("#portal-body").value.trim();
   if (!title || !body) return;
+  submitButton.disabled = true;
   try {
-    const payload = {
-      title, category, body, published: true,
-      updatedAt: firebase.serverTimestamp(), createdBy: currentUser.uid
-    };
-    if (editingPortalId) {
-      await firebase.updateDoc(firebase.doc(firebase.db, "portal", editingPortalId), payload);
-      portalItems = portalItems.map((item) => item.id === editingPortalId
-        ? { ...item, title, category, body, published: true, updatedAt: new Date().toISOString(), createdBy: currentUser.uid }
-        : item);
-    } else {
-      const created = await firebase.addDoc(firebase.collection(firebase.db, "portal"), payload);
-      portalItems.push({
-        id: created.id, title, category, body, published: true,
-        updatedAt: new Date().toISOString(), createdBy: currentUser.uid
-      });
-    }
+    const updatedAt = new Date().toISOString();
+    const editingId = editingPortalId;
+    const itemId = editingId || createContentId();
+    const nextItems = await mutateWorkspaceItems("portal", (items) => {
+      if (editingId) {
+        let found = false;
+        const updated = items.map((item) => {
+          if (item.id !== itemId) return item;
+          found = true;
+          return { ...item, title, category, body, published: true, updatedAt, createdBy: currentUser.uid };
+        });
+        if (!found) throw new Error("La publicación ya no existe. Actualiza los datos e inténtalo de nuevo.");
+        return updated;
+      }
+      return [...items, {
+        id: itemId, title, category, body, published: true, updatedAt, createdBy: currentUser.uid
+      }];
+    });
+    portalItems = nextItems;
     writeLocalCache("portal", portalItems);
     editingPortalId = null;
     renderPortal();
@@ -433,6 +470,8 @@ async function savePortalItem(event) {
     showToast("Contenido publicado.");
   } catch (error) {
     showToast(`No se pudo guardar: ${error.message}`);
+  } finally {
+    submitButton.disabled = false;
   }
 }
 
@@ -442,11 +481,11 @@ function renderShifts() {
     <div class="section-heading"><div><p class="eyebrow">COBERTURA OPERATIVA</p><h2>Calendario de guardias</h2><p class="muted">Consulta los turnos asignados al equipo.</p></div></div>
     ${isAdmin() ? `<form id="shift-form" class="editor-card shift-form">
       <div class="editor-heading"><h3>Asignar una guardia</h3></div>
-      <div class="shift-fields"><div><label for="shift-person">Asesor o responsable</label><input id="shift-person" maxlength="120" required></div>
-      <div><label for="shift-date">Fecha</label><input id="shift-date" type="date" required></div>
-      <div><label for="shift-start">Inicio</label><input id="shift-start" type="time" value="09:00" required></div>
-      <div><label for="shift-end">Fin</label><input id="shift-end" type="time" value="18:00" required></div>
-      <button class="button button-primary" type="submit">＋ Asignar turno</button></div>
+      <div class="shift-fields"><div><label for="shift-person">Asesor o responsable</label><input id="shift-person" maxlength="120" required ${shiftsLoaded ? "" : "disabled"}></div>
+      <div><label for="shift-date">Fecha</label><input id="shift-date" type="date" required ${shiftsLoaded ? "" : "disabled"}></div>
+      <div><label for="shift-start">Inicio</label><input id="shift-start" type="time" value="09:00" required ${shiftsLoaded ? "" : "disabled"}></div>
+      <div><label for="shift-end">Fin</label><input id="shift-end" type="time" value="18:00" required ${shiftsLoaded ? "" : "disabled"}></div>
+      <button class="button button-primary" type="submit" ${shiftsLoaded ? "" : "disabled"}>＋ Asignar turno</button></div>
     </form>` : ""}
     <div class="shift-list">${sortedShifts.map((shift) => `<article class="shift-card">
       <div class="shift-date"><strong>${escapeHtml(new Date(`${shift.date}T12:00:00`).getDate())}</strong><span>${escapeHtml(new Intl.DateTimeFormat("es", { month: "short" }).format(new Date(`${shift.date}T12:00:00`)))}</span></div>
@@ -458,8 +497,14 @@ function renderShifts() {
   document.querySelectorAll(".delete-shift").forEach((button) => button.addEventListener("click", async () => {
     if (!window.confirm("¿Eliminar este turno?")) return;
     try {
-      await firebase.deleteDoc(firebase.doc(firebase.db, "shifts", button.dataset.id));
-      shifts = shifts.filter((shift) => shift.id !== button.dataset.id);
+      const nextShifts = await mutateWorkspaceItems("shifts", (items) => {
+        const updated = items.filter((shift) => shift.id !== button.dataset.id);
+        if (updated.length === items.length) {
+          throw new Error("La guardia ya no existe. Actualiza los datos e inténtalo de nuevo.");
+        }
+        return updated;
+      });
+      shifts = nextShifts;
       writeLocalCache("shifts", shifts);
       renderShifts();
       updateCurrentDuty();
@@ -472,6 +517,7 @@ function renderShifts() {
 
 async function createShift(event) {
   event.preventDefault();
+  const submitButton = event.currentTarget.querySelector('button[type="submit"]');
   const person = document.querySelector("#shift-person").value.trim();
   const date = document.querySelector("#shift-date").value;
   const start = document.querySelector("#shift-start").value;
@@ -480,13 +526,14 @@ async function createShift(event) {
     showToast("Revisa los datos: la hora de fin debe ser posterior al inicio.");
     return;
   }
+  submitButton.disabled = true;
   try {
-    const shiftData = {
-      person, date, start, end, department: "Operaciones",
-      createdBy: currentUser.uid, createdAt: firebase.serverTimestamp()
+    const newShift = {
+      id: createContentId(),
+      person, date, start, end, department: "Operaciones"
     };
-    const created = await firebase.addDoc(firebase.collection(firebase.db, "shifts"), shiftData);
-    shifts.push({ id: created.id, person, date, start, end, department: "Operaciones" });
+    const nextShifts = await mutateWorkspaceItems("shifts", (items) => [...items, newShift]);
+    shifts = nextShifts;
     writeLocalCache("shifts", shifts);
     renderShifts();
     updateCurrentDuty();
@@ -496,18 +543,183 @@ async function createShift(event) {
     showToast("Guardia asignada.");
   } catch (error) {
     showToast(`No se pudo asignar: ${error.message}`);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+function renderSpeeches() {
+  const cards = speeches.map((speech) => `
+    <article class="content-card speech-card">
+      <div class="speech-card-heading"><div><p class="eyebrow">GUION DE ATENCIÓN</p><h3>${escapeHtml(speech.title)}</h3></div></div>
+      <p class="speech-description">${escapeHtml(speech.description).replace(/\n/g, "<br>")}</p>
+      <div class="speech-text">${escapeHtml(speech.text).replace(/\n/g, "<br>")}</div>
+      <div class="card-actions">
+        <button class="text-button copy-speech" data-id="${escapeHtml(speech.id)}" type="button">Copiar</button>
+        ${isAdmin() ? `<button class="text-button edit-speech" data-id="${escapeHtml(speech.id)}" type="button">Editar</button><button class="text-button danger delete-speech" data-id="${escapeHtml(speech.id)}" type="button">Eliminar</button>` : ""}
+      </div>
+    </article>`).join("");
+  mainView.innerHTML = `
+    <div class="section-heading"><div><p class="eyebrow">RECURSOS DE ATENCIÓN</p><h2>Speech de atención</h2><p class="muted">Guiones y respuestas aprobadas para atender a clientes.</p></div>
+      <div class="admin-actions">
+        ${isAdmin() ? `<button id="new-speech" class="button button-primary" type="button" ${speechesLoaded ? "" : "disabled"}>＋ Agregar speech</button>` : ""}
+      </div>
+    </div>
+    ${isAdmin() ? `<form id="speech-form" class="editor-card hidden">
+      <div class="editor-heading"><h3 id="speech-form-title">${editingSpeechId ? "Editar speech" : "Agregar speech"}</h3><button id="cancel-speech" class="text-button" type="button">Cancelar</button></div>
+      <label for="speech-title">Nombre del speech</label><input id="speech-title" maxlength="120" required>
+      <label for="speech-description">Descripción</label><textarea id="speech-description" rows="2" maxlength="500" required></textarea>
+      <label for="speech-text">Texto para copiar</label><textarea id="speech-text" rows="6" maxlength="10000" required></textarea>
+      <button class="button button-primary" type="submit">Guardar speech</button>
+    </form>` : ""}
+    ${!speechesLoaded ? `<div class="empty-state"><span>…</span><h3>${speechLoadError ? "No se pudieron cargar los speeches" : "Cargando speeches"}</h3><p>${speechLoadError ? escapeHtml(speechLoadError) : "Un momento, estamos consultando el repositorio."}</p></div>` :
+      `<div class="speech-grid">${cards || '<div class="empty-state"><span>☷</span><h3>Aún no hay speeches</h3><p>Los guiones aprobados aparecerán aquí.</p></div>'}</div>`}`;
+  bindSpeechActions();
+}
+
+function bindSpeechActions() {
+  const form = document.querySelector("#speech-form");
+  document.querySelector("#new-speech")?.addEventListener("click", () => {
+    editingSpeechId = null;
+    form?.reset();
+    const formTitle = form?.querySelector("#speech-form-title");
+    if (formTitle) formTitle.textContent = "Agregar speech";
+    form?.classList.remove("hidden");
+    form?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  document.querySelector("#cancel-speech")?.addEventListener("click", () => {
+    editingSpeechId = null;
+    form?.classList.add("hidden");
+  });
+  form?.addEventListener("submit", saveSpeech);
+  document.querySelectorAll(".copy-speech").forEach((button) => button.addEventListener("click", async () => {
+    const speech = speeches.find((item) => item.id === button.dataset.id);
+    if (!speech) return;
+    try {
+      await navigator.clipboard.writeText(speech.text);
+      showToast("Speech copiado al portapapeles.");
+    } catch (error) {
+      showToast(`No se pudo copiar el speech: ${error.message}`);
+    }
+  }));
+  document.querySelectorAll(".edit-speech").forEach((button) => button.addEventListener("click", () => {
+    const speech = speeches.find((item) => item.id === button.dataset.id);
+    if (!speech || !form) return;
+    editingSpeechId = speech.id;
+    form.querySelector("#speech-title").value = speech.title;
+    form.querySelector("#speech-description").value = speech.description;
+    form.querySelector("#speech-text").value = speech.text;
+    form.querySelector("#speech-form-title").textContent = "Editar speech";
+    form.classList.remove("hidden");
+    form.scrollIntoView({ behavior: "smooth", block: "center" });
+  }));
+  document.querySelectorAll(".delete-speech").forEach((button) => button.addEventListener("click", async () => {
+    const speech = speeches.find((item) => item.id === button.dataset.id);
+    if (!speech || !window.confirm(`¿Eliminar el speech «${speech.title}»?`)) return;
+    try {
+      const nextSpeeches = await mutateWorkspaceItems("speeches", (items) => {
+        const updated = items.filter((item) => item.id !== speech.id);
+        if (updated.length === items.length) {
+          throw new Error("El speech ya no existe. Actualiza los datos e inténtalo de nuevo.");
+        }
+        return updated;
+      });
+      speeches = nextSpeeches;
+      writeLocalCache("speeches", speeches);
+      renderSpeeches();
+      showToast("Speech eliminado.");
+    } catch (error) {
+      showToast(`No se pudo eliminar: ${error.message}`);
+    }
+  }));
+}
+
+async function saveSpeech(event) {
+  event.preventDefault();
+  const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+  const title = document.querySelector("#speech-title").value.trim();
+  const description = document.querySelector("#speech-description").value.trim();
+  const text = document.querySelector("#speech-text").value.trim();
+  if (!title || !description || !text) {
+    showToast("Completa el nombre, la descripción y el texto del speech.");
+    return;
+  }
+  submitButton.disabled = true;
+  const updatedAt = new Date().toISOString();
+  const editingId = editingSpeechId;
+  const speechId = editingId || createContentId();
+  try {
+    const nextSpeeches = await mutateWorkspaceItems("speeches", (items) => {
+      if (editingId) {
+        let found = false;
+        const updated = items.map((item) => {
+          if (item.id !== editingId) return item;
+          found = true;
+          return { ...item, title, description, text, updatedAt };
+        });
+        if (!found) throw new Error("El speech ya no existe. Actualiza los datos e inténtalo de nuevo.");
+        return updated;
+      }
+      return [...items, { id: speechId, title, description, text, updatedAt }];
+    });
+    speeches = nextSpeeches;
+    writeLocalCache("speeches", speeches);
+    editingSpeechId = null;
+    renderSpeeches();
+    showToast("Speech guardado.");
+  } catch (error) {
+    showToast(`No se pudo guardar el speech: ${error.message}`);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function loadSpeechData(forceRefresh = false) {
+  if (speechLoadPromise) return speechLoadPromise;
+  const cached = readLocalCache("speeches");
+  if (cached && !forceRefresh) {
+    speeches = cached.items;
+    speechesLoaded = true;
+    updateLastSyncLabel();
+    if (activeView === "speech") renderSpeeches();
+    return;
+  }
+  if (cached) speeches = cached.items;
+  speechesLoaded = Boolean(cached);
+  speechLoadError = "";
+  if (activeView === "speech") renderSpeeches();
+
+  speechLoadPromise = (async () => {
+    try {
+      const items = await getWorkspaceItems("speeches");
+      speeches = items || [];
+      speechesLoaded = true;
+      speechLoadError = "";
+      if (items) writeLocalCache("speeches", speeches);
+      updateLastSyncLabel();
+      if (activeView === "speech") renderSpeeches();
+      if (forceRefresh) showToast("Speech actualizado desde Firebase.");
+    } catch (error) {
+      speechLoadError = error.message;
+      showToast(`No se pudieron cargar los speeches: ${error.message}`);
+      if (activeView === "speech") renderSpeeches();
+    }
+  })();
+  try {
+    await speechLoadPromise;
+  } finally {
+    speechLoadPromise = null;
   }
 }
 
 function renderReservedView(view) {
   const descriptions = {
-    speech: ["Respuestas y guiones de soporte", "Este espacio queda preparado para centralizar respuestas aprobadas y guiones de atención."],
     pdf: ["Herramientas para documentos", "El convertidor está reservado para una futura herramienta de maquetación en el navegador."],
     auxiliary: ["Un espacio para nuevas ideas", "Este módulo está listo para crecer con las necesidades del equipo."]
   };
   const [title, description] = descriptions[view];
   mainView.innerHTML = `<div class="section-heading"><div><p class="eyebrow">PRÓXIMAMENTE</p><h2>${escapeHtml(viewNames[view])}</h2><p class="muted">${escapeHtml(description)}</p></div></div>
-    <div class="placeholder-card"><div class="placeholder-icon">${view === "pdf" ? "▧" : view === "speech" ? "☷" : "＋"}</div><h3>${escapeHtml(title)}</h3><p>La estructura está preparada para una próxima actualización de SwiftDesk.</p><span class="coming-soon">MÓDULO PREPARADO</span></div>`;
+    <div class="placeholder-card"><div class="placeholder-icon">${view === "pdf" ? "▧" : "＋"}</div><h3>${escapeHtml(title)}</h3><p>La estructura está preparada para una próxima actualización de SwiftDesk.</p><span class="coming-soon">MÓDULO PREPARADO</span></div>`;
 }
 
 function selectView(view) {
@@ -517,6 +729,10 @@ function selectView(view) {
   document.querySelectorAll(".nav-link").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   if (view === "portal") renderPortal();
   else if (view === "calendar") renderShifts();
+  else if (view === "speech") {
+    renderSpeeches();
+    loadSpeechData();
+  }
   else renderReservedView(view);
   closeSidebar();
 }
@@ -555,10 +771,10 @@ function renderSearchResults(query) {
 function updateLastSyncLabel() {
   const label = document.querySelector("#last-sync");
   if (!label) return;
-  const timestamps = ["portal", "shifts"]
-    .map((name) => readLocalCache(name)?.savedAt)
-    .filter(Number.isFinite);
-  if (timestamps.length !== 2) {
+  const cachedSpeeches = readLocalCache("speeches");
+  const collectionNames = cachedSpeeches ? ["portal", "shifts", "speeches"] : ["portal", "shifts"];
+  const timestamps = collectionNames.map((name) => readLocalCache(name)?.savedAt).filter(Number.isFinite);
+  if (timestamps.length < 2) {
     label.textContent = "Datos aún no sincronizados";
     return;
   }
@@ -580,9 +796,67 @@ function cacheableShift(snapshotDoc) {
   };
 }
 
+async function getWorkspaceItems(moduleId) {
+  const reference = firebase.doc(firebase.db, "workspace", moduleId);
+  const snapshot = await firebase.getDoc(reference);
+  if (snapshot.exists()) {
+    const items = snapshot.data().items;
+    if (!Array.isArray(items)) {
+      throw new Error(`El documento workspace/${moduleId} no contiene una lista "items" válida.`);
+    }
+    return items;
+  }
+
+  if (!isAdmin()) return null;
+
+  let items = [];
+  if (moduleId === "portal" || moduleId === "shifts") {
+    const legacy = await firebase.getDocs(firebase.collection(firebase.db, moduleId));
+    items = legacy.docs.map(moduleId === "portal" ? cacheablePortalItem : cacheableShift);
+  }
+  return firebase.runTransaction(firebase.db, async (transaction) => {
+    const latest = await transaction.get(reference);
+    if (latest.exists()) {
+      const currentItems = latest.data().items;
+      if (!Array.isArray(currentItems)) {
+        throw new Error(`El documento workspace/${moduleId} no contiene una lista "items" válida.`);
+      }
+      return currentItems;
+    }
+    transaction.set(reference, { items, updatedAt: firebase.serverTimestamp() });
+    return items;
+  });
+}
+
+async function mutateWorkspaceItems(moduleId, updateItems) {
+  const reference = firebase.doc(firebase.db, "workspace", moduleId);
+  return firebase.runTransaction(firebase.db, async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists()) {
+      throw new Error(`Falta el documento workspace/${moduleId}. Actualiza los datos e inténtalo de nuevo.`);
+    }
+    const items = snapshot.data().items;
+    if (!Array.isArray(items)) {
+      throw new Error(`El documento workspace/${moduleId} no contiene una lista "items" válida.`);
+    }
+    const updatedItems = updateItems(items);
+    transaction.update(reference, {
+      items: updatedItems,
+      updatedAt: firebase.serverTimestamp()
+    });
+    return updatedItems;
+  });
+}
+
 async function loadWorkspaceData(forceRefresh = false) {
   const portalCache = readLocalCache("portal");
   const shiftsCache = readLocalCache("shifts");
+  portalLoaded = Boolean(portalCache);
+  shiftsLoaded = Boolean(shiftsCache);
+  if (forceRefresh) {
+    portalLoaded = false;
+    shiftsLoaded = false;
+  }
   if (portalCache) portalItems = portalCache.items;
   if (shiftsCache) shifts = shiftsCache.items;
   updateLastSyncLabel();
@@ -592,20 +866,28 @@ async function loadWorkspaceData(forceRefresh = false) {
   const errors = [];
   const requests = [];
   if (forceRefresh || !portalCache) {
-    requests.push(firebase.getDocs(firebase.collection(firebase.db, "portal"))
-      .then((snapshot) => {
-        portalItems = snapshot.docs.map(cacheablePortalItem);
-        writeLocalCache("portal", portalItems);
+    requests.push(getWorkspaceItems("portal")
+      .then((items) => {
+        portalItems = items || [];
+        portalLoaded = true;
+        if (items) writeLocalCache("portal", portalItems);
       })
-      .catch((error) => errors.push(`portal: ${error.message}`)));
+      .catch((error) => {
+        portalLoaded = Boolean(portalCache);
+        errors.push(`portal: ${error.message}`);
+      }));
   }
   if (forceRefresh || !shiftsCache) {
-    requests.push(firebase.getDocs(firebase.collection(firebase.db, "shifts"))
-      .then((snapshot) => {
-        shifts = snapshot.docs.map(cacheableShift);
-        writeLocalCache("shifts", shifts);
+    requests.push(getWorkspaceItems("shifts")
+      .then((items) => {
+        shifts = items || [];
+        shiftsLoaded = true;
+        if (items) writeLocalCache("shifts", shifts);
       })
-      .catch((error) => errors.push(`guardias: ${error.message}`)));
+      .catch((error) => {
+        shiftsLoaded = Boolean(shiftsCache);
+        errors.push(`guardias: ${error.message}`);
+      }));
   }
   await Promise.all(requests);
   updateLastSyncLabel();
@@ -636,6 +918,13 @@ async function handleAuthState(user) {
   currentProfile = null;
   portalItems = [];
   shifts = [];
+  portalLoaded = false;
+  shiftsLoaded = false;
+  speeches = [];
+  speechesLoaded = false;
+  speechLoadError = "";
+  speechLoadPromise = null;
+  editingSpeechId = null;
   teamMembers = [];
   if (!user) {
     if (previousUid) clearLocalDataCache(previousUid);
@@ -788,7 +1077,8 @@ function setupUI() {
     button.disabled = true;
     button.textContent = "Actualizando...";
     try {
-      await loadWorkspaceData(true);
+      if (activeView === "speech") await loadSpeechData(true);
+      else await loadWorkspaceData(true);
     } catch (error) {
       showToast(`No se pudieron actualizar los datos: ${error.message}`);
     } finally {
