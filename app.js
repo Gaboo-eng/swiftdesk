@@ -1,5 +1,6 @@
 import { firebaseReady } from "./firebase-client.js";
 import { firebaseConfig } from "./firebase-config.js";
+import { initializeThemeToggle } from "./theme.js";
 
 const appShell = document.querySelector("#app-shell");
 const dashboardStatus = document.querySelector("#dashboard-status");
@@ -39,6 +40,8 @@ let suggestionsLoading = false;
 let suggestionsLoadError = "";
 let suggestionsLoadPromise = null;
 let pendingAuthRedirectReason = null;
+
+initializeThemeToggle();
 
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (character) => ({

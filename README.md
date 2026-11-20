@@ -52,6 +52,7 @@ Firebase Authentication en Spark no ofrece desde el navegador la API administrat
 
 ## Notas de privacidad y operación
 
+- El botón junto al logo cambia entre modo claro y oscuro. La preferencia se guarda en `localStorage` del navegador y se aplica tanto al inicio de sesión como al dashboard; no se sincroniza entre dispositivos.
 - GitHub Pages es un sitio público: cualquiera puede abrir la página y descargar el código. El inicio de sesión y las reglas de Firestore protegen los datos, pero no incluyas información privada o contraseñas en los archivos del repositorio. `noindex` pide a buscadores que no indexen la web, pero **no** la vuelve privada. Los encabezados de seguridad declarados en `firebase.json` solo aplican si publicas en Firebase Hosting, no en GitHub Pages.
 - El login está en `index.html` y el dashboard en `dashboard.html`, con lógica separada en `login.js` y `app.js`. La verificación de sesión en el dashboard es una protección de navegación, no oculta el código: las reglas de Firestore son las que impiden que cuentas sin un perfil aprobado accedan a los datos. En plan Spark, el proveedor de correo/contraseña no permite bloquear por completo solicitudes directas de registro fuera de la interfaz; para controlar las altas de Auth exclusivamente en el servidor se necesita un backend con Firebase Admin SDK.
 - El calendario incrustado requiere una URL de inserción válida y accesible para el usuario; se configura desde el botón flotante.

@@ -1,10 +1,13 @@
 import { firebaseReady } from "./firebase-client.js";
+import { initializeThemeToggle } from "./theme.js";
 
 const form = document.querySelector("#login-form");
 const loginMessage = document.querySelector("#login-message");
 const configNotice = document.querySelector("#config-notice");
 const loginButton = form.querySelector('button[type="submit"]');
 let firebase = null;
+
+initializeThemeToggle();
 
 function showMessage(message, isError = false) {
   loginMessage.textContent = message;
