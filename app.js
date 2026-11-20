@@ -10,6 +10,7 @@ const viewNames = {
   portal: "Portal informativo",
   calendar: "Calendario de guardias",
   speech: "Speech de atención",
+  suggestions: "Sugerencias recibidas",
   pdf: "Convertidor de PDF",
   auxiliary: "Módulo auxiliar"
 };
@@ -25,6 +26,7 @@ let shifts = [];
 let portalLoaded = false;
 let shiftsLoaded = false;
 let speeches = [];
+let suggestions = [];
 let teamMembers = [];
 let toastTimer;
 let editingPortalId = null;
@@ -32,6 +34,10 @@ let editingSpeechId = null;
 let speechesLoaded = false;
 let speechLoadError = "";
 let speechLoadPromise = null;
+let suggestionsLoaded = false;
+let suggestionsLoading = false;
+let suggestionsLoadError = "";
+let suggestionsLoadPromise = null;
 let pendingAuthRedirectReason = null;
 
 function escapeHtml(value = "") {
@@ -474,6 +480,7 @@ function renderShifts() {
       <div><label for="shift-date">Fecha</label><input id="shift-date" type="date" required ${shiftsLoaded ? "" : "disabled"}></div>
       <div><label for="shift-start">Inicio</label><input id="shift-start" type="time" value="09:00" required ${shiftsLoaded ? "" : "disabled"}></div>
       <div><label for="shift-end">Fin</label><input id="shift-end" type="time" value="18:00" required ${shiftsLoaded ? "" : "disabled"}></div>
+      <div><label for="shift-department">Departamento</label><select id="shift-department" required ${shiftsLoaded ? "" : "disabled"}><option value="" selected disabled>Selecciona</option><option value="Administración">Administración</option><option value="Soporte Técnico">Soporte</option><option value="Atención al Cliente">Atención al cliente</option><option value="Ventas">Ventas</option></select></div>
       <button class="button button-primary" type="submit" ${shiftsLoaded ? "" : "disabled"}>＋ Asignar turno</button></div>
     </form>` : ""}
     <div class="shift-list">${sortedShifts.map((shift) => `<article class="shift-card">
@@ -511,15 +518,16 @@ async function createShift(event) {
   const date = document.querySelector("#shift-date").value;
   const start = document.querySelector("#shift-start").value;
   const end = document.querySelector("#shift-end").value;
-  if (!person || !date || !start || !end || end <= start) {
-    showToast("Revisa los datos: la hora de fin debe ser posterior al inicio.");
+  const department = document.querySelector("#shift-department").value;
+  if (!person || !date || !start || !end || !department || end <= start) {
+    showToast("Revisa los datos: selecciona un departamento y verifica que la hora de fin sea posterior al inicio.");
     return;
   }
   submitButton.disabled = true;
   try {
     const newShift = {
       id: createContentId(),
-      person, date, start, end, department: "Operaciones"
+      person, date, start, end, department
     };
     const nextShifts = await mutateWorkspaceItems("shifts", (items) => [...items, newShift]);
     shifts = nextShifts;
@@ -543,7 +551,7 @@ function renderSpeeches() {
       <div class="speech-card-heading"><div><p class="eyebrow">GUION DE ATENCIÓN</p><h3>${escapeHtml(speech.title)}</h3></div></div>
       <p class="speech-description">${escapeHtml(speech.description).replace(/\n/g, "<br>")}</p>
       <div class="speech-text">${escapeHtml(speech.text).replace(/\n/g, "<br>")}</div>
-      <div class="card-actions">
+      <div class="card-actions speech-actions">
         <button class="text-button copy-speech" data-id="${escapeHtml(speech.id)}" type="button">Copiar</button>
         ${isAdmin() ? `<button class="text-button edit-speech" data-id="${escapeHtml(speech.id)}" type="button">Editar</button><button class="text-button danger delete-speech" data-id="${escapeHtml(speech.id)}" type="button">Eliminar</button>` : ""}
       </div>
@@ -722,6 +730,10 @@ function selectView(view) {
     renderSpeeches();
     loadSpeechData();
   }
+  else if (view === "suggestions") {
+    renderSuggestions();
+    loadSuggestions();
+  }
   else renderReservedView(view);
   closeSidebar();
 }
@@ -886,6 +898,11 @@ async function handleAuthState(user) {
   speechesLoaded = false;
   speechLoadError = "";
   speechLoadPromise = null;
+  suggestions = [];
+  suggestionsLoaded = false;
+  suggestionsLoading = false;
+  suggestionsLoadError = "";
+  suggestionsLoadPromise = null;
   editingSpeechId = null;
   teamMembers = [];
   if (!user) {
@@ -931,6 +948,7 @@ async function initializeAuthenticatedUser(user) {
     }
     currentProfile = profile;
     currentProfileUid = user.uid;
+    document.querySelector('[data-view="suggestions"]').classList.toggle("hidden", !isAdmin());
     loadUserNotes();
     dashboardStatus.classList.add("hidden");
     appShell.classList.remove("hidden");
@@ -961,17 +979,90 @@ async function createSuggestion(event) {
     return;
   }
   try {
-    await firebase.addDoc(firebase.collection(firebase.db, "suggestions"), {
+    const suggestionRef = await firebase.addDoc(firebase.collection(firebase.db, "suggestions"), {
       text,
       uid: currentUser.uid,
       email: currentUser.email || "",
       createdAt: firebase.serverTimestamp()
     });
+    if (isAdmin() && suggestionsLoaded) {
+      suggestions.unshift({
+        id: suggestionRef.id,
+        text,
+        uid: currentUser.uid,
+        email: currentUser.email || "",
+        createdAt: new Date()
+      });
+      if (activeView === "suggestions") renderSuggestions();
+    }
     field.value = "";
     showMessage(message, "¡Gracias! Tu sugerencia fue enviada.");
   } catch (error) {
     showMessage(message, `No se pudo enviar: ${error.message}`, true);
   }
+}
+
+function renderSuggestions() {
+  if (!isAdmin()) {
+    mainView.innerHTML = '<div class="empty-state"><h3>Sección no disponible</h3></div>';
+    return;
+  }
+  const sortedSuggestions = [...suggestions].sort((a, b) => {
+    const timestamp = (value) => value?.toDate ? value.toDate().getTime() : new Date(value || 0).getTime();
+    return timestamp(b.createdAt) - timestamp(a.createdAt);
+  });
+  const content = suggestionsLoading
+    ? '<div class="empty-state"><h3>Cargando sugerencias</h3><p>Un momento, estamos consultando los mensajes recibidos.</p></div>'
+    : suggestionsLoadError
+      ? `<div class="empty-state"><h3>No se pudieron cargar las sugerencias</h3><p>${escapeHtml(suggestionsLoadError)}</p></div>`
+      : `<div class="suggestion-list">${sortedSuggestions.map((suggestion) => `
+        <article class="suggestion-card">
+          <div class="suggestion-meta"><strong>${escapeHtml(suggestion.email || "Usuario")}</strong><span>${escapeHtml(formatDate(suggestion.createdAt))}</span></div>
+          <p>${escapeHtml(suggestion.text).replace(/\n/g, "<br>")}</p>
+        </article>`).join("") || '<div class="empty-state"><span>✉</span><h3>No hay sugerencias todavía</h3><p>Las propuestas enviadas desde el buzón aparecerán aquí.</p></div>'}</div>`;
+  mainView.innerHTML = `
+    <div class="section-heading"><div><p class="eyebrow">IDEAS DEL EQUIPO</p><h2>Sugerencias recibidas</h2><p class="muted">Solo los administradores pueden consultar estos mensajes.</p></div>
+      <button id="refresh-suggestions" class="button button-secondary" type="button" ${suggestionsLoading ? "disabled" : ""}>Actualizar sugerencias</button>
+    </div>
+    ${content}`;
+  document.querySelector("#refresh-suggestions")?.addEventListener("click", () => loadSuggestions(true));
+}
+
+async function loadSuggestions(forceRefresh = false) {
+  if (!isAdmin()) return;
+  if (suggestionsLoadPromise) return suggestionsLoadPromise;
+  if (suggestionsLoaded && !forceRefresh) {
+    renderSuggestions();
+    return;
+  }
+  suggestionsLoading = true;
+  suggestionsLoadError = "";
+  renderSuggestions();
+  const request = (async () => {
+    try {
+      const snapshot = await firebase.getDocs(firebase.collection(firebase.db, "suggestions"));
+      suggestions = snapshot.docs.map((suggestionDoc) => {
+        const suggestion = suggestionDoc.data();
+        return {
+          id: suggestionDoc.id,
+          text: suggestion.text || "",
+          email: suggestion.email || "",
+          createdAt: suggestion.createdAt || null
+        };
+      });
+      suggestionsLoaded = true;
+      if (forceRefresh) showToast("Sugerencias actualizadas.");
+    } catch (error) {
+      suggestionsLoadError = error.message;
+      showToast(`No se pudieron cargar las sugerencias: ${error.message}`);
+    } finally {
+      suggestionsLoading = false;
+      suggestionsLoadPromise = null;
+      if (activeView === "suggestions") renderSuggestions();
+    }
+  })();
+  suggestionsLoadPromise = request;
+  return request;
 }
 
 function setupUtilityPanels() {
@@ -1063,6 +1154,7 @@ function setupUI() {
     button.textContent = "Actualizando...";
     try {
       if (activeView === "speech") await loadSpeechData(true);
+      else if (activeView === "suggestions") await loadSuggestions(true);
       else await loadWorkspaceData(true);
     } catch (error) {
       showToast(`No se pudieron actualizar los datos: ${error.message}`);
