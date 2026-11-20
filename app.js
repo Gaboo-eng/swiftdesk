@@ -16,6 +16,9 @@ const viewNames = {
 let firebase = null;
 let currentUser = null;
 let currentProfile = null;
+let currentProfileUid = null;
+let authInitializationUid = null;
+let authInitializationPromise = null;
 let activeView = "portal";
 let portalItems = [];
 let shifts = [];
@@ -104,20 +107,6 @@ function clearLocalDataCache(uid) {
       showToast(`No se pudo limpiar la caché de ${collectionName}: ${error.message}`);
     }
   }
-}
-
-function cacheablePortalItem(snapshotDoc) {
-  const item = snapshotDoc.data();
-  const updatedAt = item.updatedAt?.toDate ? item.updatedAt.toDate().toISOString() : item.updatedAt;
-  return {
-    id: snapshotDoc.id,
-    title: item.title || "",
-    body: item.body || "",
-    category: item.category || "General",
-    published: item.published !== false,
-    updatedAt,
-    createdBy: item.createdBy || ""
-  };
 }
 
 function createContentId() {
@@ -784,63 +773,27 @@ function updateLastSyncLabel() {
   }).format(lastSync)}`;
 }
 
-function cacheableShift(snapshotDoc) {
-  const shift = snapshotDoc.data();
-  return {
-    id: snapshotDoc.id,
-    person: shift.person || "",
-    date: shift.date || "",
-    start: shift.start || "",
-    end: shift.end || "",
-    department: shift.department || "Operaciones"
-  };
-}
-
 async function getWorkspaceItems(moduleId) {
   const reference = firebase.doc(firebase.db, "workspace", moduleId);
   const snapshot = await firebase.getDoc(reference);
-  if (snapshot.exists()) {
-    const items = snapshot.data().items;
-    if (!Array.isArray(items)) {
-      throw new Error(`El documento workspace/${moduleId} no contiene una lista "items" válida.`);
-    }
-    return items;
+  if (!snapshot.exists()) return [];
+  const items = snapshot.data().items;
+  if (!Array.isArray(items)) {
+    throw new Error(`El documento workspace/${moduleId} no contiene una lista "items" válida.`);
   }
-
-  if (!isAdmin()) return null;
-
-  let items = [];
-  if (moduleId === "portal" || moduleId === "shifts") {
-    const legacy = await firebase.getDocs(firebase.collection(firebase.db, moduleId));
-    items = legacy.docs.map(moduleId === "portal" ? cacheablePortalItem : cacheableShift);
-  }
-  return firebase.runTransaction(firebase.db, async (transaction) => {
-    const latest = await transaction.get(reference);
-    if (latest.exists()) {
-      const currentItems = latest.data().items;
-      if (!Array.isArray(currentItems)) {
-        throw new Error(`El documento workspace/${moduleId} no contiene una lista "items" válida.`);
-      }
-      return currentItems;
-    }
-    transaction.set(reference, { items, updatedAt: firebase.serverTimestamp() });
-    return items;
-  });
+  return items;
 }
 
 async function mutateWorkspaceItems(moduleId, updateItems) {
   const reference = firebase.doc(firebase.db, "workspace", moduleId);
   return firebase.runTransaction(firebase.db, async (transaction) => {
     const snapshot = await transaction.get(reference);
-    if (!snapshot.exists()) {
-      throw new Error(`Falta el documento workspace/${moduleId}. Actualiza los datos e inténtalo de nuevo.`);
-    }
-    const items = snapshot.data().items;
+    const items = snapshot.exists() ? snapshot.data().items : [];
     if (!Array.isArray(items)) {
       throw new Error(`El documento workspace/${moduleId} no contiene una lista "items" válida.`);
     }
     const updatedItems = updateItems(items);
-    transaction.update(reference, {
+    transaction.set(reference, {
       items: updatedItems,
       updatedAt: firebase.serverTimestamp()
     });
@@ -914,8 +867,17 @@ function humanizeAuthError(error) {
 
 async function handleAuthState(user) {
   const previousUid = currentUser?.uid;
+  if (user && currentProfileUid === user.uid && currentProfile) {
+    currentUser = user;
+    return;
+  }
+  if (user && authInitializationUid === user.uid && authInitializationPromise) {
+    return authInitializationPromise;
+  }
+
   currentUser = user;
   currentProfile = null;
+  currentProfileUid = null;
   portalItems = [];
   shifts = [];
   portalLoaded = false;
@@ -928,13 +890,32 @@ async function handleAuthState(user) {
   teamMembers = [];
   if (!user) {
     if (previousUid) clearLocalDataCache(previousUid);
+    authInitializationUid = null;
+    authInitializationPromise = null;
     const reason = pendingAuthRedirectReason || "session";
     pendingAuthRedirectReason = null;
     window.location.replace(`./index.html?reason=${reason}`);
     return;
   }
+
+  if (previousUid && previousUid !== user.uid) clearLocalDataCache(previousUid);
+  authInitializationUid = user.uid;
+  const initialization = initializeAuthenticatedUser(user);
+  authInitializationPromise = initialization;
+  try {
+    await initialization;
+  } finally {
+    if (authInitializationPromise === initialization) {
+      authInitializationUid = null;
+      authInitializationPromise = null;
+    }
+  }
+}
+
+async function initializeAuthenticatedUser(user) {
   try {
     const profileSnapshot = await firebase.getDoc(firebase.doc(firebase.db, "users", user.uid));
+    if (currentUser?.uid !== user.uid) return;
     if (!profileSnapshot.exists()) {
       pendingAuthRedirectReason = "profile";
       await firebase.signOut(firebase.auth);
@@ -949,6 +930,7 @@ async function handleAuthState(user) {
       return;
     }
     currentProfile = profile;
+    currentProfileUid = user.uid;
     loadUserNotes();
     dashboardStatus.classList.add("hidden");
     appShell.classList.remove("hidden");
@@ -960,6 +942,9 @@ async function handleAuthState(user) {
     updateGreeting();
     await loadWorkspaceData();
   } catch (error) {
+    if (currentUser?.uid !== user.uid) return;
+    currentProfile = null;
+    currentProfileUid = null;
     dashboardStatus.textContent = `No se pudo validar tu perfil. Revisa tu conexión y vuelve a cargar: ${error.message}`;
     dashboardStatus.classList.add("error");
     dashboardStatus.classList.remove("hidden");

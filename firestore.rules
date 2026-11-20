@@ -9,24 +9,20 @@ service cloud.firestore {
       return role in ['admin', 'advisor'];
     }
 
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
     function isAdmin() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return signedIn() && userRole() == 'admin';
     }
 
     function isAdvisorOrAdmin() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'advisor'];
-    }
-
-    function legacyModuleEnabled(moduleId) {
-      return !exists(/databases/$(database)/documents/workspace/$(moduleId));
+      return signedIn() && userRole() in ['admin', 'advisor'];
     }
 
     match /users/{userId} {
-      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isAdmin()
         && request.auth.uid != userId
         && request.resource.data.keys().hasOnly(['name', 'email', 'role', 'department', 'createdAt'])
@@ -62,16 +58,6 @@ service cloud.firestore {
         && request.resource.data.items is list
         && request.resource.data.updatedAt is timestamp;
       allow delete: if false;
-    }
-
-    match /portal/{postId} {
-      allow read: if isAdvisorOrAdmin() && legacyModuleEnabled('portal');
-      allow create, update, delete: if false;
-    }
-
-    match /shifts/{shiftId} {
-      allow read: if isAdvisorOrAdmin() && legacyModuleEnabled('shifts');
-      allow create, update, delete: if false;
     }
 
     match /suggestions/{suggestionId} {
