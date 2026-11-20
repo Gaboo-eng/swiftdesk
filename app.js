@@ -13,7 +13,8 @@ const viewNames = {
   speech: "Speech de atención",
   suggestions: "Sugerencias recibidas",
   pdf: "Convertidor de PDF",
-  auxiliary: "Módulo auxiliar"
+  auxiliary: "Módulo auxiliar",
+  team: "Gestionar equipo"
 };
 let firebase = null;
 let currentUser = null;
@@ -347,27 +348,8 @@ function renderPortal() {
     </article>`).join("");
   mainView.innerHTML = `
     <div class="section-heading"><div><p class="eyebrow">NOVEDADES Y RECURSOS</p><h2>Portal informativo</h2><p class="muted">Procesos, comunicados y recursos para todo el equipo.</p></div>
-      ${isAdmin() ? `<div class="admin-actions"><button id="manage-team" class="button button-secondary" type="button">Gestionar equipo</button><button id="new-portal" class="button button-primary" type="button" ${portalLoaded ? "" : "disabled"}>＋ Nuevo contenido</button></div>` : ""}
+      ${isAdmin() ? `<div class="admin-actions"><button id="new-portal" class="button button-primary" type="button" ${portalLoaded ? "" : "disabled"}>＋ Nuevo contenido</button></div>` : ""}
     </div>
-    ${isAdmin() ? `<section id="team-management" class="editor-card hidden">
-      <div class="editor-heading"><div><h3>Administrar equipo</h3><p class="muted small">Gestiona los perfiles del equipo y crea cuentas desde SwiftDesk.</p></div><button id="close-team" class="text-button" type="button">Cerrar</button></div>
-      <div class="team-console-guide">
-        <strong>Alta desde SwiftDesk (plan Spark)</strong>
-        <span>La cuenta Auth y su perfil se crean juntos. Las reglas permiten crear perfiles solo a administradores.</span>
-      </div>
-      <form id="team-form" class="team-form">
-        <div><label for="team-name">Nombre</label><input id="team-name" maxlength="120" required></div>
-        <div><label for="team-email">Correo electrónico</label><input id="team-email" type="email" autocomplete="email" required></div>
-        <div><label for="team-password">Contraseña inicial</label><input id="team-password" type="password" minlength="6" autocomplete="new-password" required></div>
-        <div><label for="team-role">Rol</label><select id="team-role"><option value="advisor">Asesor</option><option value="admin">Administrador</option></select></div>
-        <div><label for="team-department">Departamento</label><select id="team-department"><option>Soporte Técnico</option><option>Administración</option><option>Ventas</option><option>Atención al Cliente</option></select></div>
-        <button class="button button-primary" type="submit">Crear cuenta</button>
-      </form>
-      <p id="team-message" class="form-message" role="status" aria-live="polite"></p>
-      <button id="refresh-team" class="button button-secondary" type="button">Actualizar lista</button>
-      <div id="team-list" class="team-list"><p class="muted small">Cargando miembros...</p></div>
-      <p class="muted small">Desactivar acceso elimina el perfil SwiftDesk, pero no la cuenta Auth. Para revocar completamente el acceso, elimina también esa cuenta en Firebase Console.</p>
-    </section>` : ""}
     ${isAdmin() ? `<form id="portal-form" class="editor-card hidden">
       <div class="editor-heading"><h3>${editingPortalId ? "Editar contenido" : "Publicar contenido"}</h3><button id="cancel-portal" class="text-button" type="button">Cancelar</button></div>
       <label for="portal-title">Título</label><input id="portal-title" maxlength="120" required>
@@ -379,16 +361,37 @@ function renderPortal() {
   bindPortalActions();
 }
 
+function renderTeamManagement() {
+  if (!isAdmin()) return;
+  mainView.innerHTML = `
+    <div class="section-heading"><div><p class="eyebrow">ADMINISTRACIÓN</p><h2>Gestionar equipo</h2><p class="muted">Crea cuentas y administra roles y departamentos.</p></div>
+      <button id="refresh-team" class="button button-secondary" type="button">Actualizar lista</button>
+    </div>
+    <section class="editor-card">
+      <div class="editor-heading"><div><h3>Administrar perfiles</h3><p class="muted small">La cuenta de Authentication y su perfil SwiftDesk se crean juntos.</p></div></div>
+      <div class="team-console-guide">
+        <strong>Alta desde SwiftDesk</strong>
+        <span>Ingresa una contraseña inicial segura y comunícala al miembro del equipo por un canal privado.</span>
+      </div>
+      <form id="team-form" class="team-form">
+        <div><label for="team-name">Nombre</label><input id="team-name" maxlength="120" required></div>
+        <div><label for="team-email">Correo electrónico</label><input id="team-email" type="email" autocomplete="email" required></div>
+        <div><label for="team-password">Contraseña inicial</label><input id="team-password" type="password" minlength="6" autocomplete="new-password" required></div>
+        <div><label for="team-role">Rol</label><select id="team-role"><option value="advisor">Asesor</option><option value="admin">Administrador</option></select></div>
+        <div><label for="team-department">Departamento</label><select id="team-department"><option>Soporte Técnico</option><option>Administración</option><option>Ventas</option><option>Atención al Cliente</option></select></div>
+        <button class="button button-primary" type="submit">Crear cuenta</button>
+      </form>
+      <p id="team-message" class="form-message" role="status" aria-live="polite"></p>
+      <div id="team-list" class="team-list"><p class="muted small">Cargando miembros...</p></div>
+      <p class="muted small">Desactivar acceso elimina el perfil SwiftDesk, pero no la cuenta Auth. Para revocar completamente el acceso, elimina también esa cuenta en Firebase Console.</p>
+    </section>`;
+  document.querySelector("#team-form").addEventListener("submit", createTeamMember);
+  document.querySelector("#refresh-team").addEventListener("click", () => loadTeamMembers(true));
+  loadTeamMembers();
+}
+
 function bindPortalActions() {
   const form = document.querySelector("#portal-form");
-  const teamPanel = document.querySelector("#team-management");
-  document.querySelector("#manage-team")?.addEventListener("click", async () => {
-    teamPanel?.classList.toggle("hidden");
-    if (teamPanel && !teamPanel.classList.contains("hidden")) await loadTeamMembers();
-  });
-  document.querySelector("#close-team")?.addEventListener("click", () => teamPanel?.classList.add("hidden"));
-  document.querySelector("#team-form")?.addEventListener("submit", createTeamMember);
-  document.querySelector("#refresh-team")?.addEventListener("click", () => loadTeamMembers(true));
   document.querySelector("#new-portal")?.addEventListener("click", () => {
     editingPortalId = null;
     form?.classList.remove("hidden");
@@ -724,6 +727,7 @@ function renderReservedView(view) {
 
 function selectView(view) {
   if (!viewNames[view]) return;
+  if (view === "team" && !isAdmin()) return;
   activeView = view;
   document.querySelector("#breadcrumb-current").textContent = viewNames[view];
   document.querySelectorAll(".nav-link").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
@@ -737,6 +741,7 @@ function selectView(view) {
     renderSuggestions();
     loadSuggestions();
   }
+  else if (view === "team") renderTeamManagement();
   else renderReservedView(view);
   closeSidebar();
 }
@@ -952,6 +957,7 @@ async function initializeAuthenticatedUser(user) {
     currentProfile = profile;
     currentProfileUid = user.uid;
     document.querySelector('[data-view="suggestions"]').classList.toggle("hidden", !isAdmin());
+    document.querySelector('[data-view="team"]').classList.toggle("hidden", !isAdmin());
     loadUserNotes();
     dashboardStatus.classList.add("hidden");
     appShell.classList.remove("hidden");
@@ -1139,6 +1145,91 @@ function closeSidebar() {
   document.querySelector("#sidebar-scrim").classList.remove("visible");
 }
 
+async function refreshActiveView(button = null) {
+  const originalContent = button?.innerHTML;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Actualizando...";
+  }
+  try {
+    if (activeView === "speech") await loadSpeechData(true);
+    else if (activeView === "suggestions") await loadSuggestions(true);
+    else if (activeView === "team") await loadTeamMembers(true);
+    else await loadWorkspaceData(true);
+  } catch (error) {
+    showToast(`No se pudieron actualizar los datos: ${error.message}`);
+  } finally {
+    if (button) {
+      button.innerHTML = originalContent;
+      button.disabled = false;
+    }
+  }
+}
+
+function setupPullToRefresh() {
+  const scrollArea = document.querySelector(".content-area");
+  const indicator = document.querySelector("#pull-refresh-indicator");
+  const label = document.querySelector("#pull-refresh-label");
+  if (!scrollArea || !indicator || !label) return;
+
+  let startY = null;
+  let pullDistance = 0;
+  let refreshing = false;
+  const threshold = 72;
+  const resetIndicator = () => {
+    indicator.classList.remove("visible", "ready", "refreshing");
+    label.textContent = "Desliza hacia abajo para actualizar";
+  };
+
+  scrollArea.addEventListener("touchstart", (event) => {
+    if (refreshing || event.touches.length !== 1 || scrollArea.scrollTop > 0) return;
+    if (event.target instanceof Element && event.target.closest("button, a, input, textarea, select, [contenteditable='true']")) return;
+    startY = event.touches[0].clientY;
+    pullDistance = 0;
+  }, { passive: true });
+
+  scrollArea.addEventListener("touchmove", (event) => {
+    if (startY === null || event.touches.length !== 1 || refreshing) return;
+    const distance = event.touches[0].clientY - startY;
+    if (distance <= 0) return;
+    if (scrollArea.scrollTop > 0) {
+      startY = null;
+      return;
+    }
+    event.preventDefault();
+    pullDistance = Math.min(distance, 110);
+    indicator.classList.add("visible");
+    const ready = pullDistance >= threshold;
+    indicator.classList.toggle("ready", ready);
+    label.textContent = ready ? "Suelta para actualizar" : "Desliza hacia abajo para actualizar";
+  }, { passive: false });
+
+  scrollArea.addEventListener("touchend", async () => {
+    const shouldRefresh = pullDistance >= threshold && !refreshing;
+    startY = null;
+    pullDistance = 0;
+    if (!shouldRefresh) {
+      if (!refreshing) resetIndicator();
+      return;
+    }
+    refreshing = true;
+    indicator.classList.add("visible", "refreshing");
+    label.textContent = "Actualizando...";
+    try {
+      await refreshActiveView();
+    } finally {
+      refreshing = false;
+      window.setTimeout(resetIndicator, 250);
+    }
+  }, { passive: true });
+
+  scrollArea.addEventListener("touchcancel", () => {
+    startY = null;
+    pullDistance = 0;
+    if (!refreshing) resetIndicator();
+  }, { passive: true });
+}
+
 function setupUI() {
   document.querySelector("#logout-button").addEventListener("click", async () => {
     try {
@@ -1150,26 +1241,12 @@ function setupUI() {
     }
   });
   document.querySelectorAll(".nav-link").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
-  document.querySelector("#refresh-workspace").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const label = button.innerHTML;
-    button.disabled = true;
-    button.textContent = "Actualizando...";
-    try {
-      if (activeView === "speech") await loadSpeechData(true);
-      else if (activeView === "suggestions") await loadSuggestions(true);
-      else await loadWorkspaceData(true);
-    } catch (error) {
-      showToast(`No se pudieron actualizar los datos: ${error.message}`);
-    } finally {
-      button.innerHTML = label;
-      button.disabled = false;
-    }
-  });
+  document.querySelector("#refresh-workspace").addEventListener("click", (event) => refreshActiveView(event.currentTarget));
   document.querySelector("#global-search").addEventListener("input", (event) => renderSearchResults(event.target.value));
   document.querySelector("#open-sidebar").addEventListener("click", openSidebar);
   document.querySelector("#close-sidebar").addEventListener("click", closeSidebar);
   document.querySelector("#sidebar-scrim").addEventListener("click", closeSidebar);
+  setupPullToRefresh();
   setupUtilityPanels();
   updateGreeting();
 }

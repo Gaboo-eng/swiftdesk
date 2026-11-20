@@ -31,7 +31,7 @@ Portal interno estático con HTML, CSS y JavaScript nativo. La autenticación y 
 8. En GitHub, sube los archivos del proyecto a un repositorio. En el repositorio, ve a **Settings → Pages**, selecciona **Deploy from a branch**, elige la rama donde subiste el código (por ejemplo, `main`) y la carpeta `/ (root)`, y pulsa **Save**. GitHub mostrará la dirección publicada, normalmente `https://USUARIO.github.io/NOMBRE-DEL-REPOSITORIO/`.
 9. En Firebase Console, ve a **Authentication → Settings → Authorized domains → Add domain** y añade solo el dominio, por ejemplo `USUARIO.github.io` (sin `https://` ni la ruta `/NOMBRE-DEL-REPOSITORIO/`). Si usas un dominio propio, autorízalo también.
 10. Abre la URL de GitHub Pages (`index.html`) e inicia sesión con la cuenta administradora del paso 3.
-11. Para crear miembros desde SwiftDesk, abre **Gestionar equipo** en `dashboard.html` e ingresa su nombre, correo, contraseña inicial, rol y departamento. La aplicación usa una sesión Firebase secundaria para crear la cuenta Authentication sin cerrar la sesión del administrador y luego escribe `users/{UID}`. La contraseña inicial debe comunicarse por un canal seguro.
+11. Para crear miembros desde SwiftDesk, inicia sesión como administrador y abre la sección **Gestionar equipo** al final del menú lateral. Ingresa nombre, correo, contraseña inicial, rol y departamento. La aplicación usa una sesión Firebase secundaria para crear la cuenta Authentication sin cerrar la sesión del administrador y luego escribe `users/{UID}`. La contraseña inicial debe comunicarse por un canal seguro.
 
 ## Prueba local
 
@@ -53,6 +53,7 @@ Firebase Authentication en Spark no ofrece desde el navegador la API administrat
 ## Notas de privacidad y operación
 
 - El botón junto al logo cambia entre modo claro y oscuro. La preferencia se guarda en `localStorage` del navegador y se aplica tanto al inicio de sesión como al dashboard; no se sincroniza entre dispositivos.
+- En teléfonos, desliza hacia abajo desde la parte superior del área de contenido y suelta para actualizar la sección actual. También puedes usar el botón **Actualizar datos**.
 - GitHub Pages es un sitio público: cualquiera puede abrir la página y descargar el código. El inicio de sesión y las reglas de Firestore protegen los datos, pero no incluyas información privada o contraseñas en los archivos del repositorio. `noindex` pide a buscadores que no indexen la web, pero **no** la vuelve privada. Los encabezados de seguridad declarados en `firebase.json` solo aplican si publicas en Firebase Hosting, no en GitHub Pages.
 - El login está en `index.html` y el dashboard en `dashboard.html`, con lógica separada en `login.js` y `app.js`. La verificación de sesión en el dashboard es una protección de navegación, no oculta el código: las reglas de Firestore son las que impiden que cuentas sin un perfil aprobado accedan a los datos. En plan Spark, el proveedor de correo/contraseña no permite bloquear por completo solicitudes directas de registro fuera de la interfaz; para controlar las altas de Auth exclusivamente en el servidor se necesita un backend con Firebase Admin SDK.
 - El calendario incrustado requiere una URL de inserción válida y accesible para el usuario; se configura desde el botón flotante.

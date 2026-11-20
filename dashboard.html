@@ -37,6 +37,7 @@
         <button class="nav-link hidden" data-view="suggestions" type="button"><span>✉</span> Sugerencias recibidas</button>
         <button class="nav-link" data-view="pdf" type="button"><span>▧</span> Convertidor de PDF</button>
         <button class="nav-link" data-view="auxiliary" type="button"><span>＋</span> Módulo auxiliar</button>
+        <button class="nav-link hidden" data-view="team" type="button"><span>⚙</span> Gestionar equipo</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="sidebar-help"><span class="help-icon">i</span><span>Información y herramientas<br>para tu jornada.</span></div>
@@ -47,10 +48,13 @@
     <main class="workspace">
       <header class="topbar">
         <button id="open-sidebar" class="icon-button mobile-only" type="button" aria-label="Abrir menú">☰</button>
-        <div class="breadcrumbs">SwiftDesk <span>/</span> <strong id="breadcrumb-current">Portal informativo</strong></div>
+        <div class="breadcrumbs"><span class="breadcrumb-home">SwiftDesk</span><span>/</span><strong id="breadcrumb-current">Portal informativo</strong></div>
         <div class="topbar-right"><span class="status-dot"></span><span>Conectado</span></div>
       </header>
       <div class="content-area">
+        <div id="pull-refresh-indicator" class="pull-refresh-indicator" aria-live="polite">
+          <span class="pull-refresh-icon" aria-hidden="true">↻</span><span id="pull-refresh-label">Desliza hacia abajo para actualizar</span>
+        </div>
         <section class="welcome-row">
           <div>
             <p class="eyebrow">TU ESPACIO DE TRABAJO</p>
