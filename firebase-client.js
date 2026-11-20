@@ -21,6 +21,8 @@ export const firebaseReady = (async () => {
     db,
     signInWithEmailAndPassword: authSdk.signInWithEmailAndPassword,
     sendPasswordResetEmail: authSdk.sendPasswordResetEmail,
+    verifyPasswordResetCode: authSdk.verifyPasswordResetCode,
+    confirmPasswordReset: authSdk.confirmPasswordReset,
     signOut: authSdk.signOut,
     onAuthStateChanged: authSdk.onAuthStateChanged,
     setPersistence: authSdk.setPersistence,

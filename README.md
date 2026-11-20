@@ -33,6 +33,40 @@ Portal interno estático con HTML, CSS y JavaScript nativo. La autenticación y 
 10. Abre la URL de GitHub Pages (`index.html`) e inicia sesión con la cuenta administradora del paso 3.
 11. Para crear miembros desde SwiftDesk, inicia sesión como administrador y abre la sección **Gestionar equipo** al final del menú lateral. Ingresa nombre, correo, contraseña inicial, rol y departamento. La aplicación usa una sesión Firebase secundaria para crear la cuenta Authentication sin cerrar la sesión del administrador y luego escribe `users/{UID}`. La contraseña inicial debe comunicarse por un canal seguro.
 
+## Recuperar contraseña
+
+1. En Firebase Console, abre **Authentication → Templates → Password reset** y edita la URL de acción para que apunte al manejador personalizado: `https://gaboo-eng.github.io/swiftdesk/reset-password.html`. Si el repositorio o dominio es distinto, usa la URL publicada correspondiente. Guarda la plantilla.
+2. Confirma en **Authentication → Settings → Authorized domains** que esté autorizado `gaboo-eng.github.io` (solo el dominio, sin protocolo ni ruta).
+3. Publica `reset-password.html`, `reset-password.js`, `firebase-client.js`, `login.js` y `styles.css` en GitHub Pages.
+4. El usuario pulsa **¿Olvidaste tu contraseña?** en el login y escribe su correo. Firebase envía el enlace con un código de un solo uso; al abrirlo, SwiftDesk valida el código y presenta una pantalla adaptable a móviles para establecer y confirmar la nueva contraseña, con medidor orientativo de seguridad y opción para mostrarla.
+
+El código no se escribe ni se guarda manualmente. La página lo retira de la barra de direcciones después de leerlo. Si el enlace expiró o ya se utilizó, el usuario debe solicitar otro desde el login. La contraseña nueva se actualiza directamente en Firebase Authentication; no se guarda en Firestore.
+
+La plantilla de correo que envía el SDK web de Firebase tiene personalización limitada y no permite insertar una imagen de marca ni diseñar un botón HTML propio desde esta página. Para usar un correo completamente diseñado, con imagen y un botón con texto personalizado, se necesita generar el enlace de restablecimiento en un backend seguro con Firebase Admin SDK y enviarlo mediante un proveedor de correo. No se debe generar ni enviar ese enlace desde el JavaScript público del navegador.
+
+Texto sugerido para personalizar la plantilla nativa en **Authentication → Templates → Password reset**:
+
+**Asunto**
+
+`Restablece tu contraseña de SwiftDesk`
+
+**Mensaje**
+
+```text
+Hola:
+
+Recibimos una solicitud para cambiar la contraseña de tu cuenta SwiftDesk.
+
+Usa el siguiente enlace seguro para crear una nueva contraseña:
+%LINK%
+
+Si no solicitaste este cambio, puedes ignorar este correo. No compartas el enlace con nadie: permite cambiar el acceso a tu cuenta.
+
+Equipo SwiftDesk
+```
+
+Con el envío nativo, Firebase conserva el formato y el enlace de su plantilla; este texto no permite insertar una imagen ni cambiar el enlace por un botón HTML personalizado. La página SwiftDesk que se abre al pulsarlo sí tiene el diseño actualizado.
+
 ## Prueba local
 
 Para la primera prueba, publica en GitHub Pages y abre la URL `https://...github.io/...`; los módulos JavaScript de Firebase no funcionan de forma fiable si se abre `index.html` directamente como `file://`. No hace falta configurar un servidor local.

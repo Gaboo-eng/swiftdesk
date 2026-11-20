@@ -48,18 +48,22 @@ document.querySelector("#forgot-password").addEventListener("click", async () =>
   if (!firebase) return showMessage("Firebase aún no está listo. Recarga la página e inténtalo de nuevo.", true);
   if (!email) return showMessage("Escribe tu correo para enviarte el enlace de recuperación.", true);
   try {
+    firebase.auth.languageCode = "es";
     await firebase.sendPasswordResetEmail(firebase.auth, email);
-    showMessage("Si la cuenta existe, recibirás un correo con los pasos para restablecer la contraseña.");
+    showMessage("Si la cuenta existe, recibirás un correo con el enlace para crear una nueva contraseña. Revisa también el correo no deseado.");
   } catch (error) {
     showMessage(humanizeAuthError(error), true);
   }
 });
 
-const reason = new URLSearchParams(window.location.search).get("reason");
+const searchParams = new URLSearchParams(window.location.search);
+const reason = searchParams.get("reason");
 if (reason === "profile") {
   showMessage("Tu sesión no tiene un perfil válido en SwiftDesk. Contacta al administrador.", true);
 } else if (reason === "session") {
   showMessage("Inicia sesión para continuar.", true);
+} else if (searchParams.get("password") === "updated") {
+  showMessage("Contraseña actualizada. Inicia sesión con tu nueva contraseña.");
 }
 
 loginButton.disabled = true;
@@ -68,7 +72,7 @@ showMessage("Conectando con Firebase...");
 try {
   firebase = await firebaseReady;
   loginButton.disabled = false;
-  if (!reason) showMessage("");
+  if (!reason && searchParams.get("password") !== "updated") showMessage("");
 } catch (error) {
   configNotice.textContent = `No se pudo iniciar Firebase: ${error.message}`;
   configNotice.classList.remove("hidden");
